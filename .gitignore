@@ -1,0 +1,27 @@
+# Machine-local notes, research and bookkeeping (see AGENTS.md).
+/private/
+
+# Link to the pinned harness build (made by dsd; see harness.lock).
+/harness
+
+# Dependencies and build output.
+node_modules/
+lib/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+.pnpm-store/
+
+# Generated development overlay (made from cordis.dev.yml by tools).
+cordis.dev.local.yml
+
+# Logs and scratch.
+*.log
+*.tmp
+
+# Editors and macOS.
+.DS_Store
+.idea/
+.vscode/
+*.swp
