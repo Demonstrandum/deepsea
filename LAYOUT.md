@@ -60,7 +60,7 @@ Code-level names:
 | Plugin package | `@deepsea/<name>` (also the client bundle's module id) |
 | Loader row id | `deepsea-<name>` (prefixed so it never collides with an upstream row) |
 | Page globals set by the native app | `__DEEPSEA_APP__` (identity, `openExternal`, view mode) |
-| Environment variables of our own | `DEEPSEA_VARIANT`, `DEEPSEA_LOG_ROOT`, `DEEPSEA_WORKTREES` |
+| Environment variables of our own | `DEEPSEA_VARIANT`, `DEEPSEA_ROOT` (default `~/.deepsea`), `DEEPSEA_LOG_ROOT`, `DEEPSEA_WORKTREES` |
 | Temporary files | `$TMPDIR/deepsea-<component>-…` (never bare `/tmp`) |
 | Settings section labels | the plain name of the service or feature ("Tailscale"), never a description of it |
 
@@ -198,6 +198,7 @@ include itself.
   plugins/<name>/<ts>-<pid>.jsonl             one trace per server process
 ~/Library/Logs/io.github.taliesinb.deepsea/   machine-wide (bare root)
   installer/<ts>-<pid>.log
+  builds/<ts>-harness-<12 hex>-<pid>.log      one per shared build (§2)
 ```
 
 For example, with `release`, `personal` and one throwaway:

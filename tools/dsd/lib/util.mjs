@@ -1,0 +1,113 @@
+/**
+ * Small shared helpers: errors, argument parsing, flat YAML, time stamps.
+ */
+import { execFileSync } from 'node:child_process'
+
+/** A failure reported as `dsd: <message>` with an exit code, never a stack. */
+export class DsdError extends Error {
+  constructor(message, code = 1) {
+    super(message)
+    this.code = code
+  }
+}
+
+/** Throw a usage error (exit 2). */
+export function usage(message) {
+  throw new DsdError(message, 2)
+}
+
+/**
+ * Parse `argv` into positionals and flags. `--x=v` and `--x v` give values to
+ * the names in `valued`; every other `--x` is a boolean.
+ * @param {string[]} argv
+ * @param {string[]} valued - flags that take a value.
+ * @returns {{ _: string[], [flag: string]: unknown }}
+ */
+export function parseArgs(argv, valued = []) {
+  const out = { _: [] }
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]
+    if (arg === '--') { out._.push(...argv.slice(i + 1)); break }
+    if (!arg.startsWith('--')) { out._.push(arg); continue }
+    const eq = arg.indexOf('=')
+    const name = arg.slice(2, eq < 0 ? undefined : eq)
+    if (eq >= 0) out[name] = arg.slice(eq + 1)
+    else if (valued.includes(name)) {
+      if (i + 1 >= argv.length) usage(`--${name} needs a value`)
+      out[name] = argv[++i]
+    } else out[name] = true
+  }
+  return out
+}
+
+/** Reject flags a command does not know. */
+export function onlyFlags(args, known) {
+  for (const name of Object.keys(args)) if (name !== '_' && !known.includes(name)) usage(`unknown option --${name}`)
+}
+
+/**
+ * Read flat YAML (`key: value` lines; comments and blank lines skipped).
+ * Values: JSON strings, true/false, numbers, or bare text. variant.yml uses
+ * only this subset.
+ */
+export function parseFlatYaml(text) {
+  const out = {}
+  for (const raw of text.split('\n')) {
+    const line = raw.trimEnd()
+    if (line === '' || line.trimStart().startsWith('#')) continue
+    const m = /^([A-Za-z][\w-]*):\s*(.*)$/.exec(line)
+    if (!m) throw new DsdError(`cannot read line: ${line}`)
+    const value = m[2].startsWith('"') ? m[2] : m[2].replace(/\s+#.*$/, '')
+    out[m[1]] = value.startsWith('"') ? JSON.parse(value)
+      : value === 'true' ? true : value === 'false' ? false
+        : /^-?\d+(\.\d+)?$/.test(value) ? Number(value) : value
+  }
+  return out
+}
+
+/** Write flat YAML; strings are quoted when they would not read back as themselves. */
+export function formatFlatYaml(object, header = '') {
+  const lines = header ? header.split('\n').map(l => `# ${l}`.trimEnd()) : []
+  for (const [key, value] of Object.entries(object)) {
+    if (value === undefined) continue
+    const bare = typeof value === 'string' && /^[\w./@:+~-][\w ./@:+~-]*$/.test(value)
+      && !/^(true|false|-?\d+(\.\d+)?)$/.test(value) && !value.includes(' #')
+    lines.push(`${key}: ${typeof value === 'string' && !bare ? JSON.stringify(value) : String(value)}`)
+  }
+  return `${lines.join('\n')}\n`
+}
+
+const pad = n => String(n).padStart(2, '0')
+
+/** Local time `yyyy-MM-ddTHH-mm-ss` (sortable, no colons) for file names. */
+export function fileStamp(date = new Date()) {
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`
+}
+
+/** ISO 8601 local time with UTC offset. */
+export function isoLocal(date = new Date()) {
+  const offset = -date.getTimezoneOffset()
+  const sign = offset >= 0 ? '+' : '-'
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}${sign}${pad(Math.floor(Math.abs(offset) / 60))}:${pad(Math.abs(offset) % 60)}`
+}
+
+/** Run git and return trimmed stdout. */
+export function git(cwd, args) {
+  try {
+    return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+  } catch (error) {
+    throw new DsdError(`git ${args.join(' ')} (in ${cwd}): ${String(error.stderr ?? error.message).trim().split('\n')[0]}`)
+  }
+}
+
+/** Print a JSON value on stdout. */
+export function printJson(value) {
+  process.stdout.write(`${JSON.stringify(value, null, 2)}\n`)
+}
+
+/** A progress line on stderr. */
+export function note(message) {
+  process.stderr.write(`dsd: ${message}\n`)
+}
+
+export const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))

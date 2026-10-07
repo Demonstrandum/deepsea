@@ -1,6 +1,8 @@
 # dsd — the DeepSea developer CLI
 
-**Status: design, not implemented yet.**
+**Status: stage 1 implemented** (shared harness builds, `link`, throwaway
+servers, `stop`, `list`, `gc`); everything else below is design. See
+"Implementation order".
 
 `dsd` builds, runs, inspects and drives DeepSea variants (LAYOUT.md §1), and
 runs the topic-branch workflow. It is a command-line program for developers
@@ -14,7 +16,11 @@ pnpm link --global          # once, to put `dsd` on PATH
 `dsd` resolves the checkout it lives in from its own path, so it works from
 any directory, and a copy in a topic worktree acts on that worktree. Output
 for programs is JSON on stdout; messages go to stderr; a failure exits
-non-zero with a one-line reason.
+non-zero with a one-line reason (2 for a usage error). Plain Node, no
+dependencies, so it runs on a fresh checkout before anything is installed.
+
+Environment: `DEEPSEA_ROOT` (default `~/.deepsea`) and `DEEPSEA_LOG_ROOT`
+(LAYOUT.md §5) move everything dsd writes, for tests and sandboxes.
 
 ## Variants
 
@@ -45,9 +51,17 @@ and reloaded. Plugins that declare themselves machine-wide
 Variants run immutable builds, one per commit, in `~/.deepsea/_builds/`
 (LAYOUT.md §2): `harness-<commit>/` and `deepsea-<commit>/`. `dsd` makes a
 build once, under a lock, and never rebuilds one in place; moving a variant
-to a new commit is a stop and a start. A topic worktree's `harness/` is the
-build of the harness commit it pins, so plugin topics never build the
-harness themselves. `dsd gc` removes builds nothing uses.
+to a new commit is a stop and a start. A checkout's `harness` link points at
+the build of the commit its `harness.lock` pins (`dsd link`), so plugin
+topics never build the harness themselves. `dsd gc --builds` removes builds
+nothing uses.
+
+A harness build is a detached worktree of the harness repository at
+`harness-<12 hex>/`, then `pnpm install --frozen-lockfile` and `pnpm run
+build`. Beside it, `harness-<12 hex>.json` records `building`, `ready` or
+`failed` (only `ready` is used) and `harness-<12 hex>.lock/` holds the
+builder's pid: a second agent waits, and a lock whose process is gone is
+taken over. Build logs: `~/Library/Logs/io.github.taliesinb.deepsea/builds/`.
 
 **Referring to a variant** (every command that takes `<ref>`):
 
@@ -62,11 +76,13 @@ harness themselves. `dsd gc` removes builds nothing uses.
 |---|---|
 | `dsd new <v> [--from <v>] [--color <hex>] [--source <ref>]` | create a named variant: home, `variant.yml`, port block, and the home's `logs` / `support` / `source` links (LAYOUT.md §4) |
 | `dsd build <v> [--install \| --throwaway]` | make sure the builds of its source exist, then build its apps (client, server host, relay) from `apps/macos`; `--install` installs them (LAYOUT.md §6); `--throwaway` builds the apps into a temporary directory |
-| `dsd run <v> [--throwaway \| --throwaway-app \| --throwaway-server]` | start it, building first if needed; prints id, home, URL, token, pids, app path, automation socket |
-| `dsd stop <ref> [--keep]` | stop it; a throwaway's home and build are removed unless `--keep` |
+| `dsd run <v> [--throwaway \| --throwaway-app \| --throwaway-server] [--detach] [--source <ref>] [--harness <ref>] [--keep]` | start it, building first if needed; prints id, home, URL, login URL (with token), pids, log, app path, automation socket. `--source` takes the harness pin from a commit of this repository; `--harness` names a harness commit directly |
+| `dsd stop [<ref>] [--keep]` | stop it; a throwaway's home, logs and macOS leftovers are removed unless `--keep` |
 | `dsd list [--builds]` | variants, what is running, ports, ids; with `--builds`, the builds and what uses each |
 | `dsd logs <ref> [app \| relay \| server \| plugin <name>] [--follow]` | the current run's log |
-| `dsd gc` | remove throwaways whose processes are gone, their macOS leftovers, and builds nothing uses |
+| `dsd gc [--builds] [--dry-run]` | remove throwaways whose processes are gone and their macOS leftovers; with `--builds`, also builds nothing uses |
+| `dsd builds [list \| make [<harness ref>]]` | list builds, or make one (default: the pinned commit) |
+| `dsd link` | point this checkout's `harness` at the build of its pinned commit, building it if needed |
 | `dsd drive [-v <ref>] <op> …` | one operation on a running throwaway (below) |
 | `dsd script <file.mjs> [-v <ref>]` | run a script with the same operations as a JS API |
 | `dsd topics check \| integrate \| rebase` | topic branches (AGENTS.md) |
@@ -79,7 +95,12 @@ harness themselves. `dsd gc` removes builds nothing uses.
 | (none) | the installed named variant: its LaunchAgent and app |
 | `--throwaway` | server, relay and app, as child processes |
 | `--throwaway-app` | server and app (connected straight to the server), no relay |
-| `--throwaway-server` | server only, in the foreground; cleaned up when the command exits |
+| `--throwaway-server` | server only: in the foreground until Ctrl-C, SIGTERM or the server's exit, then cleaned up; with `--detach`, until `dsd stop` |
+
+A throwaway's home holds `variant.yml` (id, parent, harness commit),
+`run/state.json` (pid, port, URL, token, log; 0600), a web profile patch
+that turns telemetry off and the first-run API-key dialog off, `settings.yaml`
+acknowledging the first-run notice, and the `logs` and `source` links (LAYOUT.md §4).
 
 Rules:
 
@@ -88,7 +109,10 @@ Rules:
 - No server starts from a tree that is being built: named variants run
   immutable builds, and a worktree source is refused while a build runs in
   it.
-- Readiness is the server's own report, never a fixed sleep.
+- Readiness is the server's own report, never a fixed sleep (stage 1: the
+  launch URL in its log, then an HTTP answer).
+- dsd signals a process only while its command line still matches what dsd
+  started, so a recycled pid is never signalled.
 - `stop`, `build --install` and `run` refuse the variant hosting the calling
   agent unless `--self`; every operation on a named variant is logged, and a
   second agent's conflicting operation waits for or refuses the first.
@@ -121,10 +145,10 @@ fail with "no app in this throwaway".
 
 ## Implementation order
 
-1. Shared builds (`_builds/`, the build lock, worktree `harness/` from a
-   build), `run --throwaway-server`, `stop`, `list`, `gc`, the machine-wide
-   plugin rule, and the test-driver's server half. This comes first, before
-   agents work on topics in parallel.
+1. Shared builds (`_builds/`, the build lock, the `harness` link),
+   `run --throwaway-server`, `stop`, `list`, `gc` (done); the machine-wide
+   plugin rule and the test-driver's server half (with the first plugin
+   topics). This comes first, before agents work on topics in parallel.
 2. `apps/macos` builds, `run --throwaway-app`, the automation socket,
    `drive`, `script`.
 3. Named variants: `new`, `build --install`, `run`.
