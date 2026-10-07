@@ -1,0 +1,42 @@
+# DeepSea topic branches.
+#
+#   [harness]  the DSH fork (the repository harness.lock names): its topics
+#              in merge order, a stacked topic after its parent
+#   [deepsea]  this repository: only its base. Its topics are its topic/*
+#              branches, each declaring the harness topics it needs in its
+#              plugins' package.json ("deepsea": { "requires": [...] }), so
+#              starting a topic edits nothing here. See `dsd topics`.
+#
+#   base <ref>                          what a topic without a parent is based on
+#   topic <branch> [<parent topic>]
+
+[harness]
+base dsh-v0.2.1-alpha.1
+
+# Fixes
+topic topic/fix-scheduler-symbol
+topic topic/fix-open-state-watchdog
+topic topic/fix-scroll-pin
+
+# DeepSea identity: default home ~/.deepsea/release
+topic topic/deepsea-home
+
+# Shell and client behaviour
+topic topic/darwin-web-shortcuts
+topic topic/modal-width
+topic topic/input-triggers
+topic topic/command-claim-decoration
+topic topic/title-slug
+
+# Embedding, sessions and workspaces
+topic topic/embed-session
+topic topic/session-relocation
+topic topic/workspace-destinations topic/session-relocation
+
+# Sign-in routes, billing metadata, the Models panel
+topic topic/pi-ai-oauth-routes
+topic topic/billing-metadata topic/pi-ai-oauth-routes
+topic topic/settings-models-signins topic/billing-metadata
+
+[deepsea]
+base topic/base
