@@ -1,0 +1,10 @@
+# The harness (DeepSeek Harness fork) this repository is developed and tested
+# against. dsd builds this commit once, shared, and links ./harness to it.
+#
+#   url     the harness repository, relative to this repository's main
+#           checkout (worktrees resolve it the same way)
+#   branch  where the commit came from (informational)
+#   commit  the pinned commit
+url ../deepsea-harness
+branch integration/dsh-v0.2.1-alpha.1
+commit 69a377aca2b8d7451e88905bd3ac941524a2e1da
