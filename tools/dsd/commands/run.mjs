@@ -123,7 +123,10 @@ export async function run(argv) {
   const commit = resolveHarnessCommit(args.harness ?? lock.commit, repo)
   const build = await ensureBuild(commit, repo)
   const plugins = selectPlugins(args.plugins)
-  if (args.scripted && !plugins.some(p => p.name === 'scripted-model')) plugins.push(...selectPlugins('scripted-model'))
+  // Every throwaway gets the test driver (dsd drive); it arms only in a throwaway home.
+  for (const always of ['test-driver', ...(args.scripted ? ['scripted-model'] : [])]) {
+    if (!plugins.some(p => p.name === always)) plugins.push(...selectPlugins(always))
+  }
   if (plugins.length > 0) {
     await linkHarness()
     for (const plugin of plugins) preparePlugin(plugin)

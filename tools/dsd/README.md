@@ -87,14 +87,14 @@ taken over. Build logs: `~/Library/Logs/io.github.taliesinb.deepsea/builds/`.
 |---|---|
 | `dsd new <v> [--from <v>] [--color <hex>] [--source <ref>]` | create a named variant: home, `variant.yml`, port block, and the home's `logs` / `support` / `source` links (LAYOUT.md §4) |
 | `dsd build <v> [--install \| --throwaway]` | make sure the builds of its source exist, then build its apps (client, server host, relay) from `apps/macos`; `--install` installs them (LAYOUT.md §6); `--throwaway` builds the apps into a temporary directory |
-| `dsd run <v> [--throwaway \| --throwaway-app \| --throwaway-server] [--detach] [--scripted] [--plugins <names\|all>] [--source <ref>] [--harness <ref>] [--keep]` | start it, building first if needed; prints id, home, URL, login URL (with token), pids, log, app path, automation socket. `--source` takes the harness pin from a commit of this repository; `--harness` names a harness commit directly |
+| `dsd run <v> [--throwaway \| --throwaway-app \| --throwaway-server] [--detach] [--scripted] [--plugins <names\|all>] [--source <ref>] [--harness <ref>] [--keep]` | start it, building first if needed (a throwaway always gets plugins/test-driver); prints id, home, URL, login URL (with token), pids, log, app path, automation socket. `--source` takes the harness pin from a commit of this repository; `--harness` names a harness commit directly |
 | `dsd stop [<ref>] [--keep]` | stop it; a throwaway's home, logs and macOS leftovers are removed unless `--keep` |
 | `dsd list [--builds]` | variants, what is running, ports, ids; with `--builds`, the builds and what uses each |
 | `dsd logs <ref> [app \| relay \| server \| plugin <name>] [--follow]` | the current run's log |
 | `dsd gc [--builds] [--dry-run]` | remove throwaways: the caller's own once stopped, another agent's once stopped for an hour, any past its time limit (with macOS leftovers); with `--builds`, also builds nothing uses |
 | `dsd builds [list \| make [<harness ref>]]` | list builds, or make one (default: the pinned commit) |
 | `dsd link` | point this checkout's `harness` at the build of its pinned commit, building it if needed |
-| `dsd drive [-v <ref>] <op> …` | one operation on a running throwaway (below) |
+| `dsd drive [-v <ref>] <op> …` | one operation on a running throwaway, as JSON (below) |
 | `dsd script <file.mjs> [-v <ref>]` | run a script with the same operations as a JS API |
 | `dsd topics [list]` | both repositories' topics: parents, commits, what each requires, how far behind; `check`, `integrate`, `rebase` not built yet |
 | `dsd worktree add <topic> [--from <ref>] \| list \| remove <topic>` | a topic's worktree in `<repo>-worktrees/<topic>/`: branch `topic/<topic>` (from `topic/base`), `harness` link, pre-commit check; `remove` refuses uncommitted changes and keeps the branch |
@@ -148,13 +148,31 @@ Rules:
 ## Driving a throwaway
 
 `dsd drive` routes each operation to the layer that can do it; the caller
-does not choose.
+does not choose. Without `-v`, it drives the caller's one running throwaway.
 
 | Layer | Operations |
 |---|---|
-| App automation socket (`apps/macos`, throwaway apps only) | `load`, `reload`, `wait`, `eval`, `resize`, `view desktop\|mobile`, `appearance light\|dark`, `click`, `type` (real input events in the app's own window), `describe`, `snapshot` (element or window), `window-info`, `quit` |
+| Server driver (plugins/test-driver, loaded into every throwaway; done) | `health`, `create-session`, `prompt`, `wait`, `command`, `events`, `cancel`, `sessions`, `invoke`, `url` |
+| App automation socket (`apps/macos`, throwaway apps only) | `load`, `reload`, `wait-page`, `eval`, `resize`, `view desktop\|mobile`, `appearance light\|dark`, `click`, `type` (real input events in the app's own window), `describe`, `snapshot` (element or window), `window-info`, `quit` |
 | Page helpers (test-driver plugin, browser half) | `open-session`, `new-session`, `archive`, `select-model`, `set-mode`, `enter`, `submit`, `last-card`, `list-sessions` |
-| Server driver (test-driver plugin, host half; throwaway homes only) | `health`, `create-session`, `command`, `prompt --wait`, `events` |
+
+The server driver's operations:
+
+| Operation | Does |
+|---|---|
+| `health` | pid, port, home, uptime, loader rows that failed or are stuck |
+| `create-session [--cwd <dir>] [--preset <p>] [--model <provider/model[:effort]>] [--title <t>]` | a new session; its id is also remembered as `last` |
+| `prompt <session> <text \| -> [--no-wait] [--steer] [--timeout <s>]` | send a prompt (`-`: from stdin, e.g. a scripted-model script) and, unless `--no-wait`, wait for the turn and summarize it: text, reasoning, tool calls with outcomes and output, command results, how the turn ended |
+| `wait <session> [--since <seq>] [--timeout <s>]` | wait for the agent to go idle, then summarize from `since` |
+| `command <session> <line>` | run a slash command; its result |
+| `events <session> [--since <seq>] [--types <a,b/*>] [--limit <n>]` | raw session events |
+| `cancel <session>`, `sessions`, `invoke <namespace> <method> [<json>]`, `url` | cancel a turn; the session list; any gateway method; the login URL |
+
+`<session>` is an id or `last`. `prompt` and `wait` exit 3 when the turn
+ended with an error (a failed scripted `expect`, say) and 4 when the wait
+timed out, so a shell script can test a turn by its exit status. The plugin's
+README has the HTTP operations and the safety rules (throwaway homes only,
+loopback, a per-process token, no browser origin).
 
 A throwaway started with `--throwaway-server` has no app; window operations
 fail with "no app in this throwaway".
@@ -164,10 +182,10 @@ fail with "no app in this throwaway".
 1. Shared builds (`_builds/`, the build lock, the `harness` link),
    `run --throwaway-server` with `--plugins` and the machine-wide rule,
    `stop`, `list`, `gc` with ownership and time limits, `worktree`,
-   `topics list`, `check`, `--scripted` (done); the test-driver's server
-   half (next). This comes first, before agents work on
-   topics in parallel.
-2. `apps/macos` builds, `run --throwaway-app`, the automation socket,
-   `drive`, `script`.
+   `topics list`, `check`, `--scripted`, `drive` with the test-driver's
+   server half (done). This comes first, before agents work on topics in
+   parallel.
+2. `apps/macos` builds, `run --throwaway-app`, the automation socket, the
+   app and page operations of `drive`, `script`.
 3. Named variants: `new`, `build --install`, `run`.
 4. `topics check | integrate | rebase`, `exec` (commands in a build with a throwaway home).

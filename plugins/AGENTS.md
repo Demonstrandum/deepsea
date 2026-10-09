@@ -73,4 +73,6 @@ Dependencies on the harness are `link:` devDependencies through the
   --scripted --plugins <name>` (tools/dsd/README.md), never in the instance
   the user is working in. With `--scripted` every prompt is a JSONL script
   of the model's exact reply, so turns, tool calls and their UI can be
-  tested without an API key (plugins/scripted-model/README.md).
+  tested without an API key (plugins/scripted-model/README.md). Drive it
+  from the shell with `dsd drive` (create-session, prompt, command, events;
+  plugins/test-driver/README.md) rather than through a browser.

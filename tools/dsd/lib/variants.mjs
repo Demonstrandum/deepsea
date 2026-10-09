@@ -107,10 +107,12 @@ export function resolveRef(ref) {
   const all = listVariants()
   const names = list => list.map(v => `${v.id}${v.running ? ' (running)' : ''}`).join(', ')
   if (ref === undefined) {
-    const running = all.filter(v => v.throwaway && v.running)
+    // Only the caller's own: with several agents at work, another agent's
+    // throwaway is never picked by default.
+    const running = all.filter(v => v.throwaway && v.running && ownedByCaller(v.config))
     if (running.length === 1) return running[0]
-    if (running.length === 0) throw new DsdError('no throwaway is running; name a variant')
-    throw new DsdError(`several throwaways are running (${names(running)}); name one`)
+    if (running.length === 0) throw new DsdError('none of your throwaways is running; name a variant')
+    throw new DsdError(`several of your throwaways are running (${names(running)}); name one`)
   }
   const exact = all.find(v => v.id === ref)
   if (exact) return exact

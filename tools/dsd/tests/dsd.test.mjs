@@ -50,22 +50,29 @@ test('harness.lock needs url and commit', () => {
   assert.throws(() => parseLock('url ../h\n'))
 })
 
-test('references: full id, unique hex part, or the one running throwaway', () => {
+test('references: full id, unique hex part, or the caller\'s one running throwaway', async () => {
+  const { currentOwner } = await import('../lib/variants.mjs')
+  const owner = currentOwner()
   for (const id of ['personal', 'personal-3f9a1c', 'release-3f0000']) {
     mkdirSync(homeOf(id), { recursive: true })
-    writeVariant(id, { id })
+    writeVariant(id, { id, ownerSession: owner.session, ownerCheckout: owner.checkout })
   }
   assert.equal(resolveRef('personal').id, 'personal')
   assert.equal(resolveRef('9a1c').id, 'personal-3f9a1c')
   assert.throws(() => resolveRef('3f'), /several/)
   assert.throws(() => resolveRef('nope'), /no variant/)
-  assert.throws(() => resolveRef(undefined), /no throwaway is running/)
+  assert.throws(() => resolveRef(undefined), /none of your throwaways is running/)
   // A state whose pid is not the recorded process does not count as running.
   writeState('personal-3f9a1c', { pid: process.pid, signature: 'not-this-process' })
-  assert.throws(() => resolveRef(undefined), /no throwaway is running/)
+  assert.throws(() => resolveRef(undefined), /none of your throwaways is running/)
   // The command line shows the test file as it was passed (often relative); its name is enough.
   writeState('personal-3f9a1c', { pid: process.pid, signature: 'dsd.test.mjs' })
   assert.equal(resolveRef(undefined).id, 'personal-3f9a1c')
+  // Another agent's running throwaway is never the default, but can be named.
+  writeVariant('release-3f0000', { id: 'release-3f0000', ownerSession: 'session-another-agent', ownerCheckout: '/elsewhere' })
+  writeState('release-3f0000', { pid: process.pid, signature: 'dsd.test.mjs' })
+  assert.equal(resolveRef(undefined).id, 'personal-3f9a1c')
+  assert.equal(resolveRef('3f00').id, 'release-3f0000')
 })
 
 test('run logs: <ts>-<pid>.log, a latest link, identity first; pruning keeps recent and newest', () => {

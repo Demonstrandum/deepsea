@@ -1,0 +1,6 @@
+# Bundle patch, used when the package is installed into a profile.
+# The test driver arms only in a throwaway home; dsd run loads it into every
+# throwaway server.
+- insert:
+    - id: deepsea-test-driver
+      name: "@deepsea/test-driver"

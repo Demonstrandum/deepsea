@@ -4,6 +4,7 @@
  */
 import { execFileSync } from 'node:child_process'
 import { check } from '../commands/check.mjs'
+import { drive } from '../commands/drive.mjs'
 import { buildsCommand, gc, link, list, stop } from '../commands/manage.mjs'
 import { run } from '../commands/run.mjs'
 import { topics } from '../commands/topics.mjs'
@@ -19,15 +20,16 @@ const HELP = `dsd — DeepSea developer CLI (tools/dsd/README.md)
   dsd gc [--builds] [--dry-run]
   dsd builds [list | make [<harness ref>]]
   dsd link
+  dsd drive [-v <ref>] <op> …   (health, create-session, prompt, command, wait, events, cancel, sessions, invoke, url)
   dsd worktree add <topic> [--from <ref>] | list | remove <topic>
   dsd topics [list]
   dsd check [--staged | <rev range>] [--install-hook]
 
 A <variant> reference is a full id, a unique part of a throwaway's hex, or
-nothing when exactly one throwaway is running.
+nothing when exactly one of your throwaways is running.
 `
 
-const COMMANDS = { run, stop, list, gc, builds: buildsCommand, link, worktree, topics, check }
+const COMMANDS = { run, stop, list, gc, builds: buildsCommand, link, drive, worktree, topics, check }
 
 /**
  * Warn when this dsd is run inside another checkout of the same repository:
