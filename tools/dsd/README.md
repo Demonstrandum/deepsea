@@ -90,8 +90,8 @@ taken over. Build logs: `~/Library/Logs/io.github.taliesinb.deepsea/builds/`.
 | `dsd link` | point this checkout's `harness` at the build of its pinned commit, building it if needed |
 | `dsd drive [-v <ref>] <op> …` | one operation on a running throwaway (below) |
 | `dsd script <file.mjs> [-v <ref>]` | run a script with the same operations as a JS API |
-| `dsd topics check \| integrate \| rebase` | topic branches (AGENTS.md) |
-| `dsd worktree add \| list \| remove <topic>` | topic worktrees in `<repo>-worktrees/` |
+| `dsd topics [list]` | both repositories' topics: parents, commits, what each requires, how far behind; `check`, `integrate`, `rebase` not built yet |
+| `dsd worktree add <topic> [--from <ref>] \| list \| remove <topic>` | a topic's worktree in `<repo>-worktrees/<topic>/`: branch `topic/<topic>` (from `topic/base`), `harness` link, pre-commit check; `remove` refuses uncommitted changes and keeps the branch |
 | `dsd check [--staged \| <rev range>] [--install-hook]` | scan added lines for local paths, private addresses, tailnet names, email addresses and `private/check-patterns.txt`; the pre-commit hook runs `--staged` |
 
 `run` modes:
@@ -122,6 +122,7 @@ Rules:
   started, so a recycled pid is never signalled.
 - `--plugins` rebuilds a plugin's browser half when its sources are newer
   than `lib/client.js`.
+- dsd warns when run inside a different checkout than its own.
 - `stop`, `build --install` and `run` refuse the variant hosting the calling
   agent unless `--self`; every operation on a named variant is logged, and a
   second agent's conflicting operation waits for or refuses the first.
@@ -156,9 +157,11 @@ fail with "no app in this throwaway".
 
 1. Shared builds (`_builds/`, the build lock, the `harness` link),
    `run --throwaway-server` with `--plugins` and the machine-wide rule,
-   `stop`, `list`, `gc` (done); the test-driver's server half (next). This
-   comes first, before agents work on topics in parallel.
+   `stop`, `list`, `gc` with ownership and time limits, `worktree`,
+   `topics list`, `check` (done); a scripted model provider and the
+   test-driver's server half (next). This comes first, before agents work on
+   topics in parallel.
 2. `apps/macos` builds, `run --throwaway-app`, the automation socket,
    `drive`, `script`.
 3. Named variants: `new`, `build --install`, `run`.
-4. `topics` and `worktree`.
+4. `topics check | integrate | rebase`, `exec` (commands in a build with a throwaway home).

@@ -119,3 +119,11 @@ test('gc: own stopped throwaways go; another agent\'s only after an hour; expire
     if (me === undefined) delete process.env.DSH_SESSION_ID; else process.env.DSH_SESSION_ID = me
   }
 })
+
+test('topics.txt: sections, bases and topics with parents', async () => {
+  const { parseTopics } = await import('../commands/topics.mjs')
+  assert.deepEqual(parseTopics('# c\n[harness]\nbase v1 # tag\ntopic topic/a\ntopic topic/b topic/a\n\n[deepsea]\nbase topic/base\n'), {
+    harness: { base: 'v1', topics: [{ name: 'topic/a', parent: undefined }, { name: 'topic/b', parent: 'topic/a' }] },
+    deepsea: { base: 'topic/base', topics: [] },
+  })
+})

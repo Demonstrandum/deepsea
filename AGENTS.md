@@ -83,7 +83,11 @@ Both this repository and the harness fork are kept as **topic branches**:
   tip> <child>` after their parent is rewritten; otherwise the parent's old
   commits are replayed.
 - Work on a topic in its own worktree (LAYOUT.md §2), so agents can work on
-  topics in parallel without sharing a working tree.
+  topics in parallel without sharing a working tree: `dsd worktree add
+  <topic>` creates the branch from `topic/base`, the worktree, its `harness`
+  link and the pre-commit check. Use that worktree's own dsd
+  (`pnpm dsd …` there): plugins and the pin come from the checkout dsd
+  belongs to.
 - **Every commit is scanned** by the pre-commit hook (`dsd check --staged`):
   local account paths, private addresses, tailnet names, email addresses,
   and the machine-local patterns in `private/check-patterns.txt`. A hit

@@ -27,9 +27,9 @@ export function parseLock(text) {
   return out
 }
 
-/** The pin of this checkout's working tree, or of a commit of it (`ref`). */
-export function readLock(ref) {
-  const text = ref === undefined ? readFileSync(join(REPO, 'harness.lock'), 'utf8') : git(REPO, ['show', `${ref}:harness.lock`])
+/** The pin of a checkout's working tree (default: this one), or of a commit of it (`ref`). */
+export function readLock(ref, checkout = REPO) {
+  const text = ref === undefined ? readFileSync(join(checkout, 'harness.lock'), 'utf8') : git(checkout, ['show', `${ref}:harness.lock`])
   return parseLock(text)
 }
 
@@ -142,15 +142,15 @@ export async function ensureBuild(commit, repo = harnessRepo()) {
 }
 
 /**
- * Point this checkout's `harness` at the build of its pinned commit, building
- * it if needed. Returns the link, the build and the commit.
+ * Point a checkout's `harness` (default: this one) at the build of its pinned
+ * commit, building it if needed. Returns the link, the build and the commit.
  */
-export async function linkHarness() {
-  const lock = readLock()
+export async function linkHarness(checkout = REPO) {
+  const lock = readLock(undefined, checkout)
   const repo = harnessRepo(lock)
   const commit = resolveHarnessCommit(lock.commit, repo)
   const dir = await ensureBuild(commit, repo)
-  const path = join(REPO, 'harness')
+  const path = join(checkout, 'harness')
   try {
     const stat = lstatSync(path)
     if (!stat.isSymbolicLink()) usage(`${path} exists and is not a link; move it away first`)
