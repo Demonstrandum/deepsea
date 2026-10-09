@@ -84,6 +84,10 @@ Both this repository and the harness fork are kept as **topic branches**:
   commits are replayed.
 - Work on a topic in its own worktree (LAYOUT.md §2), so agents can work on
   topics in parallel without sharing a working tree.
+- **Every commit is scanned** by the pre-commit hook (`dsd check --staged`):
+  local account paths, private addresses, tailnet names, email addresses,
+  and the machine-local patterns in `private/check-patterns.txt`. A hit
+  blocks the commit.
 
 ## The plugin model in one page
 

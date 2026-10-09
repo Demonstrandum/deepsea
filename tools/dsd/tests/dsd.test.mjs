@@ -89,6 +89,20 @@ test('run logs: <ts>-<pid>.log, a latest link, identity first; pruning keeps rec
   assert.deepEqual(readdirSync(old).sort(), ['2020-01-04T00-00-00-3.log', '2020-01-05T00-00-00-4.log', 'notes.txt'])
 })
 
+test('check: added lines with their numbers; built-in patterns flag leaks but not the allowed forms', async () => {
+  const { addedLines, scan, BUILTIN_PATTERNS } = await import('../commands/check.mjs')
+  // The leaks are assembled from pieces, so this file passes the check it tests.
+  const [path, address, tailnet, mail] = ['/Users/' + 'alice', ['192', '168', '1', '4'].join('.'), 'tail123' + '.ts.net', 'bob' + '@corp.io']
+  const diff = ['--- a/a.md', '+++ b/a.md', '@@ -0,0 +1,7 @@',
+    `+see ${path}/x and /Users/USER/ok`, `+host ${address}, loopback 127.0.0.1`, `+node.example.ts.net vs box.${tailnet}`,
+    `+mail ${mail} or user@example.com`, '+pnpm@11.7.0 react@18.3.1 "@deepsea/login"', '+++ starts with two pluses', '+last'].join('\n')
+  const lines = addedLines(diff)
+  assert.equal(lines.length, 7)
+  assert.deepEqual(lines.at(-2), { file: 'a.md', line: 6, text: '++ starts with two pluses' })
+  assert.deepEqual(scan(lines, BUILTIN_PATTERNS).map(h => `${h.line}:${h.match}`), [`1:${path}`, `2:${address}`, `3:${tailnet}`, `4:${mail}`])
+  assert.deepEqual(scan([{ file: 'LICENSE', line: 1, text: mail }], BUILTIN_PATTERNS), [])
+})
+
 test('gc: own stopped throwaways go; another agent\'s only after an hour; expired ones go running or not', async () => {
   const { gcReason } = await import('../commands/manage.mjs')
   const me = process.env.DSH_SESSION_ID

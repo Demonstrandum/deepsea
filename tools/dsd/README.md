@@ -92,6 +92,7 @@ taken over. Build logs: `~/Library/Logs/io.github.taliesinb.deepsea/builds/`.
 | `dsd script <file.mjs> [-v <ref>]` | run a script with the same operations as a JS API |
 | `dsd topics check \| integrate \| rebase` | topic branches (AGENTS.md) |
 | `dsd worktree add \| list \| remove <topic>` | topic worktrees in `<repo>-worktrees/` |
+| `dsd check [--staged \| <rev range>] [--install-hook]` | scan added lines for local paths, private addresses, tailnet names, email addresses and `private/check-patterns.txt`; the pre-commit hook runs `--staged` |
 
 `run` modes:
 
