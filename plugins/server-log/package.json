@@ -1,0 +1,26 @@
+{
+  "name": "@deepsea/server-log",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DeepSea plugin: the server's own log messages (ctx.logger of every plugin) on its standard error, captured into the variant's server log.",
+  "license": "MIT",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json"
+  },
+  "files": ["index.js", "cordis.patch.yml"],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "check": "node --check index.js && node --test tests/*.test.mjs"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "link:../../harness/vendor/cordis"
+  }
+}

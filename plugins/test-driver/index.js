@@ -213,6 +213,8 @@ export function apply(ctx) {
     res.end(`${JSON.stringify(body)}\n`)
   }
 
+  ctx.logger.info('armed on %s%s', baseUrl(), CHANNEL)
+
   ctx.effect(() => ctx.webServer.register({
     kind: 'prefix',
     path: CHANNEL,

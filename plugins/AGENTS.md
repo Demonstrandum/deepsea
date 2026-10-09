@@ -73,6 +73,10 @@ copies identical.
 - Export a `Config` schema; invalid configuration fails the load before
   `apply` runs. A later patch layer replaces a row's whole `config`.
 - Host module edits need a server restart; module-source hot reload is off.
+- Log with `ctx.logger` (`info`, `warn`, `error`, `debug`). The harness keeps
+  no log sink after startup; `plugins/server-log` writes the messages to the
+  server's standard error, which `dsd` captures into the throwaway's server
+  log (`dsd run` loads it into every throwaway).
 - State goes under `$DSH_HOME/plugins/<name>/`, traces and logs under the
   variant's log directory (LAYOUT.md §4-5), scratch under
   `$TMPDIR/deepsea-<name>-…`.

@@ -1,0 +1,7 @@
+# Bundle patch, used when the package is installed into a profile.
+# Plugin log messages on the server's standard error (level: debug by
+# default; error, warn or info for less). dsd run loads it into every
+# throwaway.
+- insert:
+    - id: deepsea-server-log
+      name: "@deepsea/server-log"

@@ -140,8 +140,9 @@ export async function run(argv) {
   const app = mode === 'app' ? appSource(typeof args.app === 'string' ? args.app : undefined) : undefined
   const build = await ensureBuild(commit, repo)
   const plugins = selectPlugins(args.plugins)
-  // Every throwaway gets the test driver (dsd drive); it arms only in a throwaway home.
-  for (const always of ['test-driver', ...(args.scripted ? ['scripted-model'] : [])]) {
+  // Every throwaway gets the test driver (dsd drive; it arms only in a throwaway home) and the
+  // server log (plugin log messages into the server's log).
+  for (const always of ['test-driver', 'server-log', ...(args.scripted ? ['scripted-model'] : [])]) {
     if (!plugins.some(p => p.name === always)) plugins.push(...selectPlugins(always))
   }
   if (plugins.length > 0) {
