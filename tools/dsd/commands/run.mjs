@@ -167,7 +167,7 @@ export async function run(argv) {
   }
 
   const port = await freePort()
-  const log = openRunLog(join(logDirOf(id), 'server'))
+  const log = openRunLog(join(logDirOf(id), 'server'), { tag: 'pending' })
   const env = { ...process.env, DSH_HOME: home }
   // The plugins' own patches, then the caller's: a later layer replaces a row's whole config.
   const patches = [...writePluginPatches(plugins, join(home, 'run', 'plugins')), ...extraPatches]
@@ -175,7 +175,7 @@ export async function run(argv) {
     cwd: build, env, detached: true, stdio: ['ignore', log.fd, log.fd],
   })
   log.identify(`${variantName(id)} server pid ${child.pid} dsh web --port ${port} harness ${commit.slice(0, 10)}${plugins.length ? ` plugins ${plugins.map(p => p.name).join(',')}` : ''}`)
-  log.name(child.pid)
+  log.rename(child.pid)
   log.close()
   const signature = [SERVER_ENTRY, `--no-open --port ${port}`]
   const facts = { pid: child.pid, signature, port, log: log.path, started: isoLocal(), harness: commit, build }
@@ -211,12 +211,12 @@ export async function run(argv) {
 
   if (args.detach && bundle) {
     // Watch the app, so quitting it removes everything (commands/supervise.mjs).
-    const supervisorLog = openRunLog(join(logDirOf(id), 'dsd'))
+    const supervisorLog = openRunLog(join(logDirOf(id), 'dsd'), { tag: 'pending' })
     const supervisor = spawn(process.execPath, [join(REPO, 'tools', 'dsd', 'bin', 'dsd.mjs'), '__supervise', id], {
       detached: true, stdio: ['ignore', supervisorLog.fd, supervisorLog.fd], env: process.env,
     })
     supervisorLog.identify(`${variantName(id)} dsd supervisor pid ${supervisor.pid}`)
-    supervisorLog.name(supervisor.pid)
+    supervisorLog.rename(supervisor.pid)
     supervisorLog.close()
     facts.supervisor = { pid: supervisor.pid, signature: ['__supervise', id] }
     writeState(id, facts)

@@ -56,7 +56,7 @@ Contracts between plugins, so plugins ported separately agree:
 | service `deepseaTailscaleRelay` (relay status, restart) | `tailscale` | `reboot` |
 | service `deepseaSessionOwners` (which login drives which session) | `tailscale` | `billing` |
 | service `deepseaRemoteWorkspaces` (remote session rows) | `remote-workspaces` (browser half) | `numbered-switching` |
-| headers `x-deepsea-tailscale: 1`, `x-deepsea-tailscale-self: 1` on proxied requests | `tailscale` | `import-sessions`, `import-api-keys`, `session-introspect` |
+| headers `x-deepsea-tailscale: 1`, `x-deepsea-tailscale-self: 1` on proxied requests | `tailscale` | `import-sessions`, `import-api-keys` |
 | header `X-DeepSea-Forward-Error` (loopback forward refusals) | `tailscale` | the macOS app |
 | attribute `data-deepsea-remote-session` on remote session rows | `remote-workspaces` | `numbered-switching` |
 
@@ -81,6 +81,11 @@ copies identical.
 - State goes under `$DSH_HOME/plugins/<name>/`, traces and logs under the
   variant's log directory (LAYOUT.md §4-5), scratch under
   `$TMPDIR/deepsea-<name>-…`.
+- Logs and traces go through `@deepsea/logs` (`packages/logs`; dependency
+  `"@deepsea/logs": "link:../../packages/logs"`): `createTrace` for an
+  optional JSONL trace (configured with `trace: true`), `openRunLog` for a
+  log per run or per child process, `pluginLogDirectory` for anything else.
+  Never copy its code into a plugin.
 - **Machine-wide plugins.** A plugin that acts on something outside its
   variant (a browser it drives, local model servers it starts and stops, a
   Tailscale Serve path, a licensed external program) declares it in

@@ -77,9 +77,9 @@ test('references: full id, unique hex part, or the caller\'s one running throwaw
 
 test('run logs: <ts>-<pid>.log, a latest link, identity first; pruning keeps recent and newest', () => {
   const dir = join(logDirOf('personal-3f9a1c'), 'server')
-  const log = openRunLog(dir)
+  const log = openRunLog(dir, { tag: 'pending' })
   log.identify('io.github.taliesinb.deepsea.personal-3f9a1c server pid 42')
-  log.name(42)
+  log.rename(42)
   log.close()
   const files = readdirSync(dir)
   assert.ok(files.some(f => /^\d{4}-\d\d-\d\dT\d\d-\d\d-\d\d-42\.log$/.test(f)), files.join(','))
@@ -92,7 +92,7 @@ test('run logs: <ts>-<pid>.log, a latest link, identity first; pruning keeps rec
     utimesSync(f, new Date('2020-01-01'), new Date('2020-01-01'))
   }
   writeFileSync(join(old, 'notes.txt'), '')
-  prune(old, 2, 14)
+  prune(old, { keep: 2, days: 14 })
   assert.deepEqual(readdirSync(old).sort(), ['2020-01-04T00-00-00-3.log', '2020-01-05T00-00-00-4.log', 'notes.txt'])
 })
 

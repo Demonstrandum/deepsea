@@ -129,6 +129,7 @@ topics.txt         the harness topics and their order (this repository's topics 
 apps/macos/        native app, server host, window helper (Swift)
 apps/linux/        Electron client
 plugins/<name>/    one installable package per plugin; plugins/AGENTS.md
+packages/<name>/   code shared by plugins and tools (`@deepsea/<name>`, no dependencies)
 tools/dsd/         `dsd`, the developer CLI: variants, topics, worktrees
 tools/             bootstrap and uninstall (plain shell, for fresh machines)
 recipes/           one file per completed setup or change (later)
@@ -234,7 +235,8 @@ run. A file's identity is its first line:
   ISO 8601 with offset.
 - The writer keeps a `latest` symlink and prunes its own directory at start:
   the newest 20 runs and anything younger than 14 days (snapshots: newest 50).
-- One helper decides the directory: the variant from `DEEPSEA_VARIANT` if
+- One helper decides the directory (`packages/logs`, used by plugins and
+  dsd; the macOS app has a Swift copy): the variant from `DEEPSEA_VARIANT` if
   set, else from `DSH_HOME` (`~/.deepsea/<v>` → `<v>`); the parent
   directory from `DEEPSEA_LOG_ROOT` if set, else the platform default.
 - Plugin traces default to their `plugins/<name>/` directory; a trace is on

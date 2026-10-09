@@ -2,7 +2,6 @@
  * Where DeepSea keeps things (LAYOUT.md §1-§6). Every path is derived here.
  */
 import { execFileSync } from 'node:child_process'
-import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -23,13 +22,9 @@ export function mainCheckout() {
   }
 }
 
-/** Reverse-DNS root; a variant's name appends `.<id>`. Machine-wide things use the bare root. */
-export const ROOT_NAME = 'io.github.taliesinb.deepsea'
-
-/** `~/.deepsea`, or `DEEPSEA_ROOT` (tests, sandboxes). */
-export function deepseaRoot() {
-  return resolve(process.env.DEEPSEA_ROOT ?? join(homedir(), '.deepsea'))
-}
+/** The reverse-DNS root, the DeepSea root (`~/.deepsea` or `DEEPSEA_ROOT`), variant names and the log root: packages/logs. */
+export { deepseaRoot, logRoot, ROOT_NAME, variantName } from '../../../packages/logs/index.mjs'
+import { deepseaRoot, logRoot, ROOT_NAME, variantName } from '../../../packages/logs/index.mjs'
 
 /** Shared immutable builds. */
 export function buildsDir() {
@@ -41,17 +36,7 @@ export function homeOf(id) {
   return join(deepseaRoot(), id)
 }
 
-/** A variant's name: its app's bundle id and the prefix of everything it owns. */
-export function variantName(id) {
-  return `${ROOT_NAME}.${id}`
-}
 
-/** Parent of the per-variant log directories (LAYOUT.md §5). */
-export function logRoot() {
-  if (process.env.DEEPSEA_LOG_ROOT) return resolve(process.env.DEEPSEA_LOG_ROOT)
-  if (process.platform === 'darwin') return join(homedir(), 'Library', 'Logs')
-  return resolve(process.env.XDG_STATE_HOME ?? join(homedir(), '.local', 'state'))
-}
 
 /** A variant's log directory. */
 export function logDirOf(id) {

@@ -77,19 +77,8 @@ export function formatFlatYaml(object, header = '') {
   return `${lines.join('\n')}\n`
 }
 
-const pad = n => String(n).padStart(2, '0')
-
-/** Local time `yyyy-MM-ddTHH-mm-ss` (sortable, no colons) for file names. */
-export function fileStamp(date = new Date()) {
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`
-}
-
-/** ISO 8601 local time with UTC offset. */
-export function isoLocal(date = new Date()) {
-  const offset = -date.getTimezoneOffset()
-  const sign = offset >= 0 ? '+' : '-'
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}${sign}${pad(Math.floor(Math.abs(offset) / 60))}:${pad(Math.abs(offset) % 60)}`
-}
+/** File-name stamps and ISO local times: the shared implementation (packages/logs). */
+export { fileStamp, isoLocal } from '../../../packages/logs/index.mjs'
 
 /** Run git and return trimmed stdout. */
 export function git(cwd, args) {

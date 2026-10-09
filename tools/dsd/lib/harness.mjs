@@ -113,8 +113,7 @@ export async function ensureBuild(commit, repo = harnessRepo()) {
   try {
     if (buildReady(commit)) return dir
     const started = Date.now()
-    const log = openRunLog(join(machineLogDir(), 'builds'), { keep: 50, days: 30 })
-    log.name(`harness-${commit.slice(0, 12)}-${process.pid}`)
+    const log = openRunLog(join(machineLogDir(), 'builds'), { tag: `harness-${commit.slice(0, 12)}-${process.pid}`, keep: 50, days: 30 })
     log.identify(`${ROOT_NAME} build harness ${commit} pid ${process.pid}`)
     writeRecord(commit, { status: 'building', started: isoLocal(), log: log.path })
     try {
