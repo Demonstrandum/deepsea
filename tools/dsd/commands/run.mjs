@@ -19,7 +19,7 @@ import { homeOf, logDirOf, variantName } from '../lib/paths.mjs'
 import { alive, freePort } from '../lib/processes.mjs'
 import { removeVariant } from '../lib/remove.mjs'
 import { DsdError, isoLocal, note, onlyFlags, parseArgs, printJson, sleep, usage } from '../lib/util.mjs'
-import { checkNamedId, displayName, readVariant, writeState, writeVariant } from '../lib/variants.mjs'
+import { checkNamedId, currentOwner, displayName, readVariant, writeState, writeVariant } from '../lib/variants.mjs'
 
 /** The server's entry; with the port, the signature dsd checks before signalling. */
 const SERVER_ENTRY = 'apps/cli/src/bin.ts'
@@ -55,10 +55,12 @@ function welcomeNoticeVersion(build) {
 }
 
 /** Create the throwaway's home: configuration, profile patch, settings, links. */
-function makeHome(id, { parent, commit, build }) {
+function makeHome(id, { parent, commit, build, expires }) {
   const home = homeOf(id)
   mkdirSync(join(home, 'profiles', 'web'), { recursive: true, mode: 0o700 })
-  writeVariant(id, { id, parent, throwaway: true, mode: 'server', harness: commit, created: isoLocal() })
+  const owner = currentOwner()
+  writeVariant(id, { id, parent, throwaway: true, mode: 'server', harness: commit, created: isoLocal(),
+    ownerSession: owner.session, ownerCheckout: owner.checkout, expires })
   writeFileSync(join(home, 'profiles', 'web', 'cordis.patch.yml'), PROFILE_PATCH, { mode: 0o600 })
   const notice = welcomeNoticeVersion(build)
   if (notice) writeFileSync(join(home, 'settings.yaml'), `ui-onboarding:\n  welcomeNoticeVersion: '${notice}'\n`, { mode: 0o600 })
@@ -93,8 +95,8 @@ function tail(path, lines) {
 }
 
 export async function run(argv) {
-  const args = parseArgs(argv, ['source', 'harness', 'timeout', 'plugins'])
-  onlyFlags(args, ['throwaway', 'throwaway-app', 'throwaway-server', 'detach', 'source', 'harness', 'keep', 'timeout', 'plugins'])
+  const args = parseArgs(argv, ['source', 'harness', 'timeout', 'plugins', 'ttl'])
+  onlyFlags(args, ['throwaway', 'throwaway-app', 'throwaway-server', 'detach', 'source', 'harness', 'keep', 'timeout', 'plugins', 'ttl'])
   const parent = args._[0]
   if (parent === undefined || args._.length > 1) usage('dsd run <variant> --throwaway-server [--detach]')
   checkNamedId(parent)
@@ -118,8 +120,12 @@ export async function run(argv) {
     for (const plugin of plugins) preparePlugin(plugin)
   }
 
+  // A detached throwaway lives until `dsd stop`, or `dsd gc` after its time limit (--ttl minutes, default 120).
+  const ttl = args.detach ? Number(args.ttl ?? 120) : undefined
+  if (ttl !== undefined && !(ttl > 0)) usage('--ttl takes a number of minutes')
+  const expires = ttl === undefined ? undefined : isoLocal(new Date(Date.now() + ttl * 60_000))
   const id = newThrowawayId(parent)
-  const home = makeHome(id, { parent, commit, build })
+  const home = makeHome(id, { parent, commit, build, expires })
   const port = await freePort()
   const log = openRunLog(join(logDirOf(id), 'server'))
   const env = { ...process.env, DSH_HOME: home }
@@ -145,7 +151,7 @@ export async function run(argv) {
   printJson({
     id, name: variantName(id), display: displayName(id), home, mode: 'server',
     url: ready.url, login: `${ready.url}?token=${ready.token}`, token: ready.token,
-    pid: child.pid, port, log: log.path, harness: commit.slice(0, 10), plugins: plugins.map(p => p.name), detached: Boolean(args.detach),
+    pid: child.pid, port, log: log.path, harness: commit.slice(0, 10), plugins: plugins.map(p => p.name), detached: Boolean(args.detach), expires,
   })
 
   if (args.detach) { child.unref(); return }

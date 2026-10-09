@@ -4,7 +4,8 @@
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { deepseaRoot, homeOf } from './paths.mjs'
+import { statSync } from 'node:fs'
+import { deepseaRoot, homeOf, REPO } from './paths.mjs'
 import { alive, runningAs } from './processes.mjs'
 import { DsdError, formatFlatYaml, parseFlatYaml, usage } from './util.mjs'
 
@@ -61,6 +62,26 @@ export function writeState(id, state) {
 /** Whether a variant's recorded server is still the process it started. */
 export function isRunning(state) {
   return state?.pid !== undefined && alive(state.pid) && runningAs(state.pid, state.signature)
+}
+
+/** Who is creating a variant: the calling agent's session (when it runs in one) and this checkout. */
+export function currentOwner() {
+  return { session: process.env.DSH_SESSION_ID || undefined, checkout: REPO }
+}
+
+/** Whether a variant was created by the caller (same session, or same checkout outside any session). */
+export function ownedByCaller(config) {
+  const me = currentOwner()
+  if (config?.ownerSession || me.session) return config?.ownerSession === me.session
+  return config?.ownerCheckout === me.checkout
+}
+
+/** When a variant last showed activity: its run state, else its configuration. */
+export function lastActivity(id) {
+  for (const file of [join(homeOf(id), 'run', 'state.json'), join(homeOf(id), 'variant.yml')]) {
+    try { return statSync(file).mtimeMs } catch { /* next */ }
+  }
+  return 0
 }
 
 /** Every variant with a home: id, configuration, state, running. */

@@ -88,3 +88,20 @@ test('run logs: <ts>-<pid>.log, a latest link, identity first; pruning keeps rec
   prune(old, 2, 14)
   assert.deepEqual(readdirSync(old).sort(), ['2020-01-04T00-00-00-3.log', '2020-01-05T00-00-00-4.log', 'notes.txt'])
 })
+
+test('gc: own stopped throwaways go; another agent\'s only after an hour; expired ones go running or not', async () => {
+  const { gcReason } = await import('../commands/manage.mjs')
+  const me = process.env.DSH_SESSION_ID
+  process.env.DSH_SESSION_ID = 'session-me'
+  try {
+    const now = Date.now()
+    const v = (config, running = false) => ({ id: 'none-000000', throwaway: true, running, config })
+    assert.equal(gcReason(v({ ownerSession: 'session-me' })), 'stopped')
+    assert.equal(gcReason(v({ ownerSession: 'session-me' }, true)), undefined)
+    assert.equal(gcReason(v({ ownerSession: 'session-other' }), now), 'stopped over an hour ago')  // no activity recorded: old
+    assert.equal(gcReason(v({ ownerSession: 'session-other', expires: new Date(now - 1000).toISOString() }, true), now), 'expired')
+    assert.equal(gcReason({ id: 'release', throwaway: false, config: {} }), undefined)
+  } finally {
+    if (me === undefined) delete process.env.DSH_SESSION_ID; else process.env.DSH_SESSION_ID = me
+  }
+})

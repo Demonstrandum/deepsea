@@ -7,7 +7,7 @@ import { buildPaths, buildReady, buildRecord, ensureBuild, harnessRepo, linkHarn
 import { buildsDir, REPO } from '../lib/paths.mjs'
 import { removeVariant } from '../lib/remove.mjs'
 import { git, onlyFlags, parseArgs, printJson, usage } from '../lib/util.mjs'
-import { listVariants, resolveRef } from '../lib/variants.mjs'
+import { lastActivity, listVariants, ownedByCaller, resolveRef } from '../lib/variants.mjs'
 
 /** dsd stop [<ref>] [--keep] */
 export async function stop(argv) {
@@ -28,6 +28,8 @@ export async function list(argv) {
     status: v.running ? 'running' : 'stopped',
     port: v.running ? v.state.port : undefined,
     harness: (v.state?.harness ?? v.config?.harness)?.slice(0, 10),
+    owner: v.throwaway ? (ownedByCaller(v.config) ? 'me' : (v.config?.ownerSession ?? v.config?.ownerCheckout ?? '?').replace(/^session-/, '').slice(0, 13)) : undefined,
+    expires: v.config?.expires,
     url: v.running ? v.state.url : undefined,
   }))
   if (args.json) return printJson(rows)
@@ -77,15 +79,34 @@ function buildUsers() {
   return users
 }
 
+/** How long another agent's stopped throwaway is kept for inspection. */
+const FOREIGN_GRACE_MS = 60 * 60_000
+
+/**
+ * Which throwaways gc removes, and why: the caller's own once stopped;
+ * anyone's once stopped for an hour; anyone's, running or not, past its
+ * time limit.
+ */
+export function gcReason(v, now = Date.now()) {
+  if (!v.throwaway) return undefined
+  const expires = v.config?.expires ? Date.parse(v.config.expires) : NaN
+  if (expires < now) return 'expired'
+  if (v.running) return undefined
+  if (ownedByCaller(v.config)) return 'stopped'
+  return now - lastActivity(v.id) > FOREIGN_GRACE_MS ? 'stopped over an hour ago' : undefined
+}
+
 /** dsd gc [--builds] [--dry-run] */
 export async function gc(argv) {
   const args = parseArgs(argv)
   onlyFlags(args, ['builds', 'dry-run'])
   const dry = Boolean(args['dry-run'])
-  const result = { throwaways: [], builds: [] }
+  const result = { throwaways: [], kept: [], builds: [] }
   for (const v of listVariants()) {
-    if (!v.throwaway || v.running) continue
-    result.throwaways.push(v.id)
+    if (!v.throwaway) continue
+    const reason = gcReason(v)
+    if (reason === undefined) { if (!v.running) result.kept.push({ id: v.id, reason: 'another agent stopped it under an hour ago' }); continue }
+    result.throwaways.push({ id: v.id, reason })
     if (!dry) await removeVariant(v.id)
   }
   if (args.builds) {

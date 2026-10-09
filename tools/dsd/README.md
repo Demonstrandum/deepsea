@@ -85,7 +85,7 @@ taken over. Build logs: `~/Library/Logs/io.github.taliesinb.deepsea/builds/`.
 | `dsd stop [<ref>] [--keep]` | stop it; a throwaway's home, logs and macOS leftovers are removed unless `--keep` |
 | `dsd list [--builds]` | variants, what is running, ports, ids; with `--builds`, the builds and what uses each |
 | `dsd logs <ref> [app \| relay \| server \| plugin <name>] [--follow]` | the current run's log |
-| `dsd gc [--builds] [--dry-run]` | remove throwaways whose processes are gone and their macOS leftovers; with `--builds`, also builds nothing uses |
+| `dsd gc [--builds] [--dry-run]` | remove throwaways: the caller's own once stopped, another agent's once stopped for an hour, any past its time limit (with macOS leftovers); with `--builds`, also builds nothing uses |
 | `dsd builds [list \| make [<harness ref>]]` | list builds, or make one (default: the pinned commit) |
 | `dsd link` | point this checkout's `harness` at the build of its pinned commit, building it if needed |
 | `dsd drive [-v <ref>] <op> …` | one operation on a running throwaway (below) |
@@ -100,9 +100,10 @@ taken over. Build logs: `~/Library/Logs/io.github.taliesinb.deepsea/builds/`.
 | (none) | the installed named variant: its LaunchAgent and app |
 | `--throwaway` | server, relay and app, as child processes |
 | `--throwaway-app` | server and app (connected straight to the server), no relay |
-| `--throwaway-server` | server only: in the foreground until Ctrl-C, SIGTERM or the server's exit, then cleaned up; with `--detach`, until `dsd stop` |
+| `--throwaway-server` | server only: in the foreground until Ctrl-C, SIGTERM or the server's exit, then cleaned up; with `--detach`, until `dsd stop`, or `dsd gc` after `--ttl` minutes (default 120) |
 
-A throwaway's home holds `variant.yml` (id, parent, harness commit),
+A throwaway's home holds `variant.yml` (id, parent, harness commit, the
+creating agent's session and checkout, the expiry of a detached one),
 `run/state.json` (pid, port, URL, token, log; 0600), a web profile patch
 that turns telemetry off and the first-run API-key dialog off, `settings.yaml`
 acknowledging the first-run notice, and the `logs` and `source` links (LAYOUT.md §4).
