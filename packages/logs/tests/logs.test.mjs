@@ -1,11 +1,13 @@
-import { test } from 'node:test'
+import { after, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, readFileSync, readlinkSync, readdirSync, utimesSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, readlinkSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createTrace, fileStamp, isoLocal, logRoot, openRunLog, pluginLogDirectory, prune, variantLogDirectory, variantOf } from '../index.mjs'
 
-const scratch = () => mkdtempSync(join(tmpdir(), 'deepsea-logs-test-'))
+const made = []
+const scratch = () => { const dir = mkdtempSync(join(tmpdir(), 'deepsea-logs-test-')); made.push(dir); return dir }
+after(() => { for (const dir of made) rmSync(dir, { recursive: true, force: true }) })
 
 test('time formats: file stamps sort and have no colons; ISO carries the offset', () => {
   const date = new Date(2026, 9, 7, 19, 4, 14, 5)
