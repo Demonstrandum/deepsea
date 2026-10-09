@@ -94,9 +94,11 @@ export function isoLocal(date = new Date()) {
 /** Run git and return trimmed stdout. */
 export function git(cwd, args) {
   try {
-    return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+    // Diffs of a whole topic can be large (test fixtures); the default 1 MiB buffer would fail them.
+    return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 512 * 1024 * 1024 }).trim()
   } catch (error) {
-    throw new DsdError(`git ${args.join(' ')} (in ${cwd}): ${String(error.stderr ?? error.message).trim().split('\n')[0]}`)
+    const reason = error.code === 'ENOBUFS' ? 'output larger than 512 MiB' : String(error.stderr || error.message).trim().split('\n')[0]
+    throw new DsdError(`git ${args.join(' ')} (in ${cwd}): ${reason}`)
   }
 }
 
