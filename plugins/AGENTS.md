@@ -56,7 +56,7 @@ Contracts between plugins, so plugins ported separately agree:
 | service `deepseaTailscaleRelay` (relay status, restart) | `tailscale` | `reboot` |
 | service `deepseaSessionOwners` (which login drives which session) | `tailscale` | `billing` |
 | service `deepseaRemoteWorkspaces` (remote session rows) | `remote-workspaces` (browser half) | `numbered-switching` |
-| headers `x-deepsea-tailscale: 1`, `x-deepsea-tailscale-self: 1` on proxied requests | `tailscale` | `import-sessions`, `import-api-keys` |
+| headers `x-deepsea-tailscale: 1`, `x-deepsea-tailscale-self: 1` on proxied requests | `tailscale` | `import-sessions` |
 | header `X-DeepSea-Forward-Error` (loopback forward refusals) | `tailscale` | the macOS app |
 | attribute `data-deepsea-remote-session` on remote session rows | `remote-workspaces` | `numbered-switching` |
 

@@ -75,10 +75,16 @@ the branch `topic/macos-app`); its compiled executable is cached by source
 hash in `_builds/macos-<12 hex>/`, so a throwaway app starts in a few
 seconds. Quitting the app removes the whole throwaway: in the foreground
 `dsd run` notices, and with `--detach` a small supervisor
-(`dsd __supervise <id>`, logged in `<logs>/dsd/`) does. A detached visible
+(`dsd __supervise <id>`, logged in `<logs>/dsd/`) does. The app outlives its
+server, so the page after a `/reboot` or `/restore` can be inspected
+(`dsd list` shows `app only`). A detached visible
 app has no time limit unless `--ttl` gives one. Removal quits the app,
 unregisters its bundle from LaunchServices and deletes it, with its
-preferences and every `~/Library/*/<variant name>*` entry.
+preferences, every `~/Library/*/<variant name>*` entry and the throwaway's
+default backups directory (`_backups/<id>/`). WebKit's empty
+`$TMPDIR/com.apple.WebKit.*+<variant name>` directories stay: System
+Integrity Protection guards them, and macOS clears them with its temporary
+directory.
 
 ## Builds
 

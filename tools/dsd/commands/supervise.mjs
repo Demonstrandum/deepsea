@@ -1,8 +1,9 @@
 /**
  * dsd __supervise <id> — internal: started detached by `dsd run --throwaway-app
- * --detach`. Watches the throwaway's app and server once a second and removes
- * the throwaway (lib/remove.mjs) as soon as either has exited, so quitting the
- * app is all a person has to do. `dsd stop` ends the supervisor first.
+ * --detach`. Watches the throwaway's app once a second and removes the
+ * throwaway (lib/remove.mjs) as soon as the app has quit, so quitting the app
+ * is all a person has to do. The app outlives its server: after a /reboot or
+ * /restore the page shows what happened. `dsd stop` ends the supervisor first.
  */
 import { removeVariant } from '../lib/remove.mjs'
 import { alive } from '../lib/processes.mjs'
@@ -15,13 +16,13 @@ export async function supervise(argv) {
   process.on('SIGTERM', () => process.exit(0))
   const say = line => process.stdout.write(`${isoLocal()} ${line}\n`)
   say(`watching ${id}`)
+  let serverGone = false
   for (;;) {
     const state = readState(id)
     if (!state) { say('the throwaway is gone'); return }
-    const app = state.app?.pid ? alive(state.app.pid) : true
-    const server = state.pid ? alive(state.pid) : false
-    if (!app || !server) {
-      say(`${app ? 'the server' : 'the app'} exited; removing ${id}`)
+    if (!serverGone && state.pid && !alive(state.pid)) { serverGone = true; say('the server exited; waiting for the app to quit') }
+    if (!state.app?.pid || !alive(state.app.pid)) {
+      say(`the app quit; removing ${id}`)
       const result = await removeVariant(id)
       say(`removed ${result.removed.length} paths`)
       return

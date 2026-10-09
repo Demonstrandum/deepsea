@@ -13,9 +13,11 @@
  * the plugins' (config overrides, fixture rows).
  *
  * In the foreground (the default) it stops and removes everything on Ctrl-C,
- * SIGTERM, or when the server or the app exits. With --detach it returns; a
- * throwaway app is then watched by a small supervisor (`dsd __supervise`) that
- * removes everything when the app quits, and `dsd stop` ends either kind.
+ * SIGTERM, or when the app quits (with no app: when the server exits; an
+ * app outlives its server, so the page after a /reboot can be seen). With
+ * --detach it returns; a throwaway app is then watched by a small supervisor
+ * (`dsd __supervise`) that removes everything when the app quits, and
+ * `dsd stop` ends either kind.
  */
 import { randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
@@ -243,9 +245,16 @@ export async function run(argv) {
       resolve()
     }
     for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(signal, stop)
+    // With an app, the app decides: after a /reboot or /restore its page shows what happened, so
+    // the throwaway stays until the app quits. Without one, the server's exit ends it.
+    let serverGone = false
     watch = setInterval(() => {
-      if (!alive(child.pid)) { note(`${id}: the server exited`); void stop() }
-      else if (appChild && !alive(appChild.pid)) { note(`${id}: the app quit`); void stop() }
+      if (appChild && !alive(appChild.pid)) { note(`${id}: the app quit`); void stop() }
+      else if (!serverGone && !alive(child.pid)) {
+        serverGone = true
+        if (appChild) note(`${id}: the server exited; the app stays until it quits, Ctrl-C or \`dsd stop ${id}\``)
+        else { note(`${id}: the server exited`); void stop() }
+      }
     }, 1000)
   })
   // `dsd stop` from elsewhere may already have removed the home; nothing else to do.

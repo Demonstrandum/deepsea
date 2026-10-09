@@ -5,6 +5,7 @@ import { existsSync, lstatSync, readdirSync, readlinkSync, rmSync, statSync } fr
 import { join } from 'node:path'
 import { buildPaths, buildReady, buildRecord, ensureBuild, harnessRepo, linkHarness, readLock, resolveHarnessCommit } from '../lib/harness.mjs'
 import { buildsDir, REPO } from '../lib/paths.mjs'
+import { runningAs } from '../lib/processes.mjs'
 import { removeVariant } from '../lib/remove.mjs'
 import { git, onlyFlags, parseArgs, printJson, usage } from '../lib/util.mjs'
 import { lastActivity, listVariants, ownedByCaller, resolveRef } from '../lib/variants.mjs'
@@ -18,6 +19,11 @@ export async function stop(argv) {
   printJson(await removeVariant(variant.id, { keep: Boolean(args.keep) }))
 }
 
+/** Whether a throwaway's app is still the process dsd started (its server may be gone). */
+function appAlive(state) {
+  return Boolean(state?.app?.pid && runningAs(state.app.pid, state.app.signature))
+}
+
 /** dsd list [--builds] [--json] */
 export async function list(argv) {
   const args = parseArgs(argv)
@@ -25,7 +31,7 @@ export async function list(argv) {
   const rows = args.builds ? builds() : listVariants().map(v => ({
     id: v.id,
     kind: v.throwaway ? 'throwaway' : 'named',
-    status: v.running ? 'running' : 'stopped',
+    status: v.running ? 'running' : appAlive(v.state) ? 'app only' : 'stopped',
     port: v.running ? v.state.port : undefined,
     harness: (v.state?.harness ?? v.config?.harness)?.slice(0, 10),
     owner: v.throwaway ? (ownedByCaller(v.config) ? 'me' : (v.config?.ownerSession ?? v.config?.ownerCheckout ?? '?').replace(/^session-/, '').slice(0, 13)) : undefined,
@@ -91,7 +97,8 @@ export function gcReason(v, now = Date.now()) {
   if (!v.throwaway) return undefined
   const expires = v.config?.expires ? Date.parse(v.config.expires) : NaN
   if (expires < now) return 'expired'
-  if (v.running) return undefined
+  // An app still open on a stopped server is in use (the page after a /reboot); its quit removes it.
+  if (v.running || appAlive(v.state)) return undefined
   if (ownedByCaller(v.config)) return 'stopped'
   return now - lastActivity(v.id) > FOREIGN_GRACE_MS ? 'stopped over an hour ago' : undefined
 }

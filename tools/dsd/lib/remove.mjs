@@ -7,7 +7,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readdirSync, realpathSync, rmSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { homeOf, logDirOf, variantName } from './paths.mjs'
+import { deepseaRoot, homeOf, logDirOf, variantName } from './paths.mjs'
 import { appDirOf, quitApp, removeAppBundle } from './app.mjs'
 import { alive, runningAs, stopGroup } from './processes.mjs'
 import { DsdError } from './util.mjs'
@@ -42,6 +42,8 @@ export function macosLeftovers(name) {
   }
   const prefs = join(library, 'Preferences')
   if (existsSync(prefs)) for (const entry of readdirSync(prefs)) if (matches(entry.replace(/\.plist$/, ''))) found.push(join(prefs, entry))
+  // Not here: WebKit's empty $TMPDIR/com.apple.WebKit.<process>+<bundle id> directories, which System
+  // Integrity Protection guards (com.apple.rootless); macOS clears them with its temporary directory.
   return found
 }
 
@@ -61,13 +63,16 @@ export async function removeVariant(id, { keep = false } = {}) {
   const appStopped = await quitApp(state?.app)
   const stopped = await stopServer(id)
   const removed = []
+  const failed = []
   if (removeAppBundle(state?.app?.dir ?? appDirOf(id))) removed.push(state?.app?.dir ?? appDirOf(id))
   if (!keep) {
     // Preferences go through cfprefsd, which caches them: delete the domain, then any file left.
     if (process.platform === 'darwin') try { execFileSync('/usr/bin/defaults', ['delete', variantName(id)], { stdio: 'ignore' }) } catch { /* no such domain */ }
-    for (const path of [homeOf(id), logDirOf(id), ...macosLeftovers(variantName(id))]) {
-      if (existsSync(path)) { rmSync(path, { recursive: true, force: true }); removed.push(path) }
+    for (const path of [homeOf(id), logDirOf(id), join(deepseaRoot(), '_backups', id), ...macosLeftovers(variantName(id))]) {
+      if (!existsSync(path)) continue
+      // One path that cannot go (a protected file) must not keep the rest.
+      try { rmSync(path, { recursive: true, force: true }); removed.push(path) } catch (error) { failed.push(`${path}: ${error.code ?? error.message}`) }
     }
   }
-  return { id, stopped: stopped || appStopped, removed }
+  return { id, stopped: stopped || appStopped, removed, ...(failed.length ? { failed } : {}) }
 }
