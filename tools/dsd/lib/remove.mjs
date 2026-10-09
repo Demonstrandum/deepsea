@@ -1,12 +1,15 @@
 /**
- * Stopping a variant's server and removing a throwaway: its home, its log
- * directory and anything macOS keeps under its variant name.
+ * Stopping a throwaway and removing it: its supervisor, app and server, then
+ * its home, its log directory, its app bundle (unregistered from
+ * LaunchServices) and anything macOS keeps under its variant name.
  */
+import { execFileSync } from 'node:child_process'
 import { existsSync, readdirSync, realpathSync, rmSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { homeOf, logDirOf, variantName } from './paths.mjs'
-import { stopGroup } from './processes.mjs'
+import { appDirOf, quitApp, removeAppBundle } from './app.mjs'
+import { alive, runningAs, stopGroup } from './processes.mjs'
 import { DsdError } from './util.mjs'
 import { isRunning, parseThrowaway, readState } from './variants.mjs'
 
@@ -49,12 +52,22 @@ export function macosLeftovers(name) {
 export async function removeVariant(id, { keep = false } = {}) {
   if (!parseThrowaway(id)) throw new DsdError(`${id} is a named variant; only throwaways are stopped and removed by dsd so far`)
   refuseOwnHome(id)
+  const state = readState(id)
+  // The supervisor first, so it does not race this removal (unless it is the caller).
+  const supervisor = state?.supervisor
+  if (supervisor?.pid && supervisor.pid !== process.pid && alive(supervisor.pid) && runningAs(supervisor.pid, supervisor.signature)) {
+    try { process.kill(supervisor.pid, 'SIGTERM') } catch { /* gone */ }
+  }
+  const appStopped = await quitApp(state?.app)
   const stopped = await stopServer(id)
   const removed = []
+  if (removeAppBundle(state?.app?.dir ?? appDirOf(id))) removed.push(state?.app?.dir ?? appDirOf(id))
   if (!keep) {
+    // Preferences go through cfprefsd, which caches them: delete the domain, then any file left.
+    if (process.platform === 'darwin') try { execFileSync('/usr/bin/defaults', ['delete', variantName(id)], { stdio: 'ignore' }) } catch { /* no such domain */ }
     for (const path of [homeOf(id), logDirOf(id), ...macosLeftovers(variantName(id))]) {
       if (existsSync(path)) { rmSync(path, { recursive: true, force: true }); removed.push(path) }
     }
   }
-  return { id, stopped, removed }
+  return { id, stopped: stopped || appStopped, removed }
 }

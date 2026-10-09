@@ -134,3 +134,31 @@ test('topics.txt: sections, bases and topics with parents', async () => {
     deepsea: { base: 'topic/base', topics: [] },
   })
 })
+
+test('app sources: this checkout, a path, or a commit; a missing one is refused', async () => {
+  const { appSource, appDirOf, appSocketOf } = await import('../lib/app.mjs')
+  const { DsdError } = await import('../lib/util.mjs')
+  assert.match(appDirOf('release-3f9a1c'), /deepsea-app-release-3f9a1c$/)
+  assert.match(appSocketOf('release-3f9a1c'), /release-3f9a1c\/run\/app\.sock$/)
+  assert.throws(() => appSource('/nonexistent-deepsea-checkout'), /has no apps\/macos/)
+  assert.throws(() => appSource('no-such-ref-for-deepsea-tests'), e => e instanceof DsdError && /no app source|has no apps\/macos/.test(e.message))
+})
+
+test('app requests: one JSON line out, one in; errors carry the app\'s code', async () => {
+  const { createServer } = await import('node:net')
+  const { appRequest } = await import('../lib/appsocket.mjs')
+  const socket = join(mkdtempSync(join(tmpdir(), 'dsd-sock-')), 's')
+  const seen = []
+  const server = createServer(conn => conn.on('data', (chunk) => {
+    const request = JSON.parse(chunk.toString().trim())
+    seen.push(request)
+    conn.write(request.op === 'hello' ? `${JSON.stringify({ id: request.id, ok: true, value: { pid: 1 } })}\n` : `${JSON.stringify({ id: request.id, ok: false, error: { code: 'offline', message: 'the offline page is showing' } })}\n`)
+  }))
+  await new Promise(resolve => server.listen(socket, resolve))
+  try {
+    assert.deepEqual(await appRequest(socket, 'hello'), { pid: 1 })
+    await assert.rejects(appRequest(socket, 'eval', { js: 'return 1' }), /eval: offline: the offline page is showing/)
+    assert.deepEqual(seen.map(r => [r.op, r.js]), [['hello', undefined], ['eval', 'return 1']])
+    await assert.rejects(appRequest(`${socket}-missing`, 'hello'), /cannot reach the app/)
+  } finally { server.close() }
+})

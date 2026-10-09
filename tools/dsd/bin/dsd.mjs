@@ -7,6 +7,8 @@ import { check } from '../commands/check.mjs'
 import { drive } from '../commands/drive.mjs'
 import { buildsCommand, gc, link, list, stop } from '../commands/manage.mjs'
 import { run } from '../commands/run.mjs'
+import { script } from '../commands/script.mjs'
+import { supervise } from '../commands/supervise.mjs'
 import { topics } from '../commands/topics.mjs'
 import { worktree } from '../commands/worktree.mjs'
 import { REPO } from '../lib/paths.mjs'
@@ -14,13 +16,16 @@ import { DsdError } from '../lib/util.mjs'
 
 const HELP = `dsd — DeepSea developer CLI (tools/dsd/README.md)
 
-  dsd run <variant> --throwaway-server [--detach] [--scripted] [--plugins <names|all>] [--source <ref>] [--harness <ref>] [--keep]
+  dsd run <variant> --throwaway-app | --throwaway-server [--visible] [--detach] [--scripted] [--plugins <names|all>]
+          [--app <checkout|ref>] [--source <ref>] [--harness <ref>] [--ttl <min>] [--keep]
   dsd stop [<variant>] [--keep]
   dsd list [--builds] [--json]
   dsd gc [--builds] [--dry-run]
   dsd builds [list | make [<harness ref>]]
   dsd link
-  dsd drive [-v <ref>] <op> …   (health, create-session, prompt, command, wait, events, cancel, sessions, invoke, url)
+  dsd drive [-v <ref>] <op> …   server: health create-session prompt command wait events cancel sessions invoke url
+                                app: load reload wait-page eval resize view appearance click type describe snapshot window-info app-log quit
+  dsd script <file.mjs> [-v <ref>]
   dsd worktree add <topic> [--from <ref>] | list | remove <topic>
   dsd topics [list]
   dsd check [--staged | <rev range>] [--install-hook]
@@ -29,7 +34,7 @@ A <variant> reference is a full id, a unique part of a throwaway's hex, or
 nothing when exactly one of your throwaways is running.
 `
 
-const COMMANDS = { run, stop, list, gc, builds: buildsCommand, link, drive, worktree, topics, check }
+const COMMANDS = { run, stop, list, gc, builds: buildsCommand, link, drive, script, worktree, topics, check, __supervise: supervise }
 
 /**
  * Warn when this dsd is run inside another checkout of the same repository:

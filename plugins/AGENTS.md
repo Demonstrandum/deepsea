@@ -75,4 +75,8 @@ Dependencies on the harness are `link:` devDependencies through the
   of the model's exact reply, so turns, tool calls and their UI can be
   tested without an API key (plugins/scripted-model/README.md). Drive it
   from the shell with `dsd drive` (create-session, prompt, command, events;
-  plugins/test-driver/README.md) rather than through a browser.
+  plugins/test-driver/README.md) rather than through a browser. For a
+  browser half, use `--throwaway-app`: the real macOS app, hidden, driven
+  with `dsd drive` (wait-page, click, type, eval, describe, snapshot) or a
+  `dsd script` (tools/dsd/README.md), so what you check is what the person
+  sees.

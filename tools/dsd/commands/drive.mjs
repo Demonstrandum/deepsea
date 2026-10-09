@@ -1,7 +1,9 @@
 /**
- * dsd drive [-v <ref>] <op> … — one operation on a running throwaway, through
- * its test driver (plugins/test-driver), printed as JSON.
+ * dsd drive [-v <ref>] <op> … — one operation on a running throwaway, printed
+ * as JSON. Server operations go to its test driver (plugins/test-driver), app
+ * operations to its app's automation socket (apps/macos, Automation.swift).
  *
+ * Server:
  *   health
  *   create-session [--cwd <dir>] [--preset <name>] [--model <provider/model[:effort]>] [--title <t>]
  *   prompt <session> <text | -> [--no-wait] [--steer] [--timeout <s>]
@@ -13,6 +15,17 @@
  *   invoke <namespace> <method> [<json args>]
  *   url
  *
+ * App (a throwaway started with --throwaway-app):
+ *   load <url> | reload
+ *   wait-page [--selector <css>] [--text <t>] [--expression <js>] [--timeout <s>] [--settle <ms>]
+ *   eval <js | ->                         a function body (await allowed); its JSON value
+ *   resize <W>x<H> | view desktop|mobile | appearance light|dark|system
+ *   click <css> [--nth <n>] [--clicks <n>] | click --text <label> [<css>] | click --x <x> --y <y>
+ *   type <text | -> | type --key <Enter | Escape | cmd+k | …>
+ *   describe <css> [--nth <n>]            the element inspector's record
+ *   snapshot [<css> [--nth <n>]] [--window] [--chrome]
+ *   window-info | app-log [--lines <n>] | quit
+ *
  * <session> is a session id, or `last`: the session the last create-session
  * on this throwaway made. `-` reads the prompt from stdin (a scripted-model
  * script, say). Exit status: 0; 3 when a waited turn ended with an error;
@@ -22,14 +35,16 @@ import { request } from 'node:http'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { homeOf } from '../lib/paths.mjs'
+import { appRequest } from '../lib/appsocket.mjs'
 import { readState, resolveRef } from '../lib/variants.mjs'
 import { DsdError, onlyFlags, parseArgs, printJson, usage } from '../lib/util.mjs'
 
-const USAGE = 'dsd drive [-v <ref>] health | create-session | prompt | command | wait | events | cancel | sessions | invoke | url (tools/dsd/README.md)'
+const USAGE = 'dsd drive [-v <ref>] <op> …  server: health create-session prompt command wait events cancel sessions invoke url; app: load reload wait-page eval resize view appearance click type describe snapshot window-info app-log quit (tools/dsd/README.md)'
+const APP_OPS = new Set(['load', 'reload', 'wait-page', 'eval', 'resize', 'view', 'appearance', 'click', 'type', 'describe', 'snapshot', 'window-info', 'app-log', 'quit'])
 const LAST_SESSION = 'run/drive-last-session'
 
 /** POST one operation to the throwaway's test driver; resolve its value or throw its error. */
-function post(driver, op, body) {
+export function post(driver, op, body) {
   const url = new URL(`${driver.channel}/${op}`, driver.baseUrl)
   const payload = JSON.stringify(body)
   return new Promise((resolve, reject) => {
@@ -50,7 +65,7 @@ function post(driver, op, body) {
 }
 
 /** The test driver of a running throwaway. */
-function driverOf(variant) {
+export function driverOf(variant) {
   if (!variant.throwaway) throw new DsdError(`${variant.id} is not a throwaway; dsd drive only drives throwaways`)
   if (!variant.running) throw new DsdError(`${variant.id} is not running`)
   const file = join(homeOf(variant.id), 'run', 'test-driver.json')
@@ -68,8 +83,9 @@ const seconds = (value, name) => {
 
 export async function drive(argv) {
   // `-v <ref>` is short for `--variant <ref>`.
-  const args = parseArgs(argv.map(a => (a === '-v' ? '--variant' : a)), ['variant', 'cwd', 'preset', 'model', 'title', 'timeout', 'since', 'types', 'limit'])
-  onlyFlags(args, ['variant', 'cwd', 'preset', 'model', 'title', 'timeout', 'since', 'types', 'limit', 'no-wait', 'steer'])
+  const valued = ['variant', 'cwd', 'preset', 'model', 'title', 'timeout', 'since', 'types', 'limit', 'nth', 'clicks', 'x', 'y', 'key', 'selector', 'text', 'expression', 'settle', 'lines']
+  const args = parseArgs(argv.map(a => (a === '-v' ? '--variant' : a)), valued)
+  onlyFlags(args, [...valued, 'no-wait', 'steer', 'window', 'chrome'])
   const [op, ...rest] = args._
   if (op === undefined) usage(USAGE)
   const variant = resolveRef(args.variant)
@@ -81,6 +97,7 @@ export async function drive(argv) {
     if (!existsSync(file)) throw new DsdError('no session made by dsd drive create-session on this throwaway yet')
     return readFileSync(file, 'utf8').trim()
   }
+  if (APP_OPS.has(op)) return printJson(await appOp(variant, op, rest, args))
   if (op === 'url') {
     const state = readState(variant.id)
     return printJson({ id: variant.id, url: state?.url, login: state?.url && state?.token ? `${state.url}?token=${state.token}` : undefined })
@@ -137,4 +154,55 @@ export async function drive(argv) {
 function exitFor(value) {
   if (value?.idle === false) process.exitCode = 4
   else if (value?.summary?.turnEnd?.kind === 'error') process.exitCode = 3
+}
+
+/** One app operation over the throwaway app's automation socket. */
+async function appOp(variant, op, rest, args) {
+  const app = readState(variant.id)?.app
+  if (!app?.socket) throw new DsdError(`${variant.id} has no app (it was started with --throwaway-server)`)
+  const one = (what) => { if (rest.length !== 1) usage(`dsd drive ${op} <${what}>`); return rest[0] }
+  const count = (name) => {
+    if (args[name] === undefined) return {}
+    const n = Number(args[name])
+    if (!Number.isInteger(n)) usage(`--${name} takes a whole number`)
+    return { [name]: n }
+  }
+  const target = () => rest.length === 1 ? { selector: rest[0], ...count('nth') } : rest.length === 0 && args.x !== undefined && args.y !== undefined ? { x: Number(args.x), y: Number(args.y) } : usage(`dsd drive ${op} <css selector> [--nth <n>]`)
+  const send = (name, body = {}, timeoutMs) => appRequest(app.socket, name, body, timeoutMs ? { timeoutMs } : undefined)
+  switch (op) {
+    case 'load': return send('load', { url: one('url') })
+    case 'reload': return send('reload')
+    case 'wait-page': {
+      const body = { ...(args.selector ? { selector: args.selector } : {}), ...(args.text ? { text: args.text } : {}), ...(args.expression ? { expression: args.expression } : {}) }
+      if (Object.keys(body).length === 0) usage('dsd drive wait-page --selector <css> | --text <t> | --expression <js>')
+      const timeout = seconds(args.timeout, 'timeout') ?? 15_000
+      return send('wait-page', { ...body, timeoutMs: timeout, ...(args.settle ? { settleMs: Number(args.settle) } : {}) }, timeout + 10_000)
+    }
+    case 'eval': { const js = one('js | -'); return send('eval', { js: js === '-' ? readStdin() : js }) }
+    case 'resize': {
+      const m = /^(\d+)x(\d+)$/.exec(one('W>x<H'))
+      if (!m) usage('dsd drive resize <width>x<height>, e.g. 1280x860')
+      return send('resize', { width: Number(m[1]), height: Number(m[2]) })
+    }
+    case 'view': return send('view', { mode: one('desktop | mobile') })
+    case 'appearance': return send('appearance', { value: one('light | dark | system') })
+    case 'click': {
+      if (args.text !== undefined) { if (rest.length > 1) usage('dsd drive click --text <label> [<css scope>]'); return send('click', { text: args.text, ...(rest[0] ? { selector: rest[0] } : {}), ...count('nth'), ...count('clicks') }) }
+      return send('click', { ...target(), ...count('clicks') })
+    }
+    case 'type': {
+      if (args.key !== undefined) { if (rest.length) usage('dsd drive type --key <key> takes no text'); return send('type', { key: args.key }) }
+      const text = one('text | -')
+      return send('type', { text: text === '-' ? readStdin() : text })
+    }
+    case 'describe': return send('describe', target())
+    case 'snapshot': {
+      if (args.window) { if (rest.length) usage('dsd drive snapshot --window takes no selector'); return send('snapshot', { window: true, ...(args.chrome ? { chrome: true } : {}) }) }
+      return send('snapshot', target())
+    }
+    case 'window-info': return send('window-info')
+    case 'app-log': return send('log', count('lines'))
+    case 'quit': return send('quit')
+  }
+  return undefined
 }

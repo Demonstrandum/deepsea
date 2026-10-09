@@ -1,7 +1,8 @@
 # dsd — the DeepSea developer CLI
 
-**Status: stage 1 implemented** (shared harness builds, `link`, throwaway
-servers, `stop`, `list`, `gc`); everything else below is design. See
+**Status: stages 1 and 2 implemented** (shared harness builds, `link`,
+throwaway servers and apps, `stop`, `list`, `gc`, `drive`, `script`,
+`worktree`, `topics list`, `check`); everything else below is design. See
 "Implementation order".
 
 `dsd` builds, runs, inspects and drives DeepSea variants (LAYOUT.md §1), and
@@ -57,6 +58,23 @@ exact reply (text, reasoning, tool calls, usage, provider errors), so a
 throwaway can run real turns, tool calls and their UI with no API key and
 the same result every time (plugins/scripted-model/README.md).
 
+**Throwaway apps** (`--throwaway-app`): the DeepSea macOS app built for the
+throwaway (`DeepSea <V> <hex>.app`, bundle id its variant name, an orange
+whale) into `$TMPDIR/deepsea-app-<id>/`, opened straight on the throwaway
+server's login URL with a non-persistent WebKit store and its automation
+socket at `<home>/run/app.sock`. Hidden by default: an invisible,
+click-through window that never takes focus and has no Dock tile, yet keeps
+rendering, for agents. `--visible` shows it, for a person. The app comes
+from `apps/macos` of this checkout, else `--app <checkout | ref>` (default
+the branch `topic/macos-app`); its compiled executable is cached by source
+hash in `_builds/macos-<12 hex>/`, so a throwaway app starts in a few
+seconds. Quitting the app removes the whole throwaway: in the foreground
+`dsd run` notices, and with `--detach` a small supervisor
+(`dsd __supervise <id>`, logged in `<logs>/dsd/`) does. A detached visible
+app has no time limit unless `--ttl` gives one. Removal quits the app,
+unregisters its bundle from LaunchServices and deletes it, with its
+preferences and every `~/Library/*/<variant name>*` entry.
+
 ## Builds
 
 Variants run immutable builds, one per commit, in `~/.deepsea/_builds/`
@@ -78,8 +96,9 @@ taken over. Build logs: `~/Library/Logs/io.github.taliesinb.deepsea/builds/`.
 
 - the full id: `personal`, `personal-3f9a1c`;
 - a unique part of a throwaway's hex: `3f9a`;
-- nothing, when exactly one throwaway is running; with several, `dsd` stops
-  and lists them, so one agent never drives another's throwaway.
+- nothing, when exactly one of the caller's throwaways is running; with
+  several, `dsd` stops and lists them, and another agent's is never the
+  default.
 
 ## Commands
 
@@ -87,7 +106,7 @@ taken over. Build logs: `~/Library/Logs/io.github.taliesinb.deepsea/builds/`.
 |---|---|
 | `dsd new <v> [--from <v>] [--color <hex>] [--source <ref>]` | create a named variant: home, `variant.yml`, port block, and the home's `logs` / `support` / `source` links (LAYOUT.md §4) |
 | `dsd build <v> [--install \| --throwaway]` | make sure the builds of its source exist, then build its apps (client, server host, relay) from `apps/macos`; `--install` installs them (LAYOUT.md §6); `--throwaway` builds the apps into a temporary directory |
-| `dsd run <v> [--throwaway \| --throwaway-app \| --throwaway-server] [--detach] [--scripted] [--plugins <names\|all>] [--source <ref>] [--harness <ref>] [--keep]` | start it, building first if needed (a throwaway always gets plugins/test-driver); prints id, home, URL, login URL (with token), pids, log, app path, automation socket. `--source` takes the harness pin from a commit of this repository; `--harness` names a harness commit directly |
+| `dsd run <v> [--throwaway \| --throwaway-app \| --throwaway-server] [--visible] [--detach] [--scripted] [--plugins <names\|all>] [--app <checkout \| ref>] [--source <ref>] [--harness <ref>] [--ttl <min>] [--keep]` | start it, building first if needed (a throwaway always gets plugins/test-driver); prints id, home, URL, login URL (with token), pids, log, app path, automation socket. `--source` takes the harness pin from a commit of this repository; `--harness` names a harness commit directly |
 | `dsd stop [<ref>] [--keep]` | stop it; a throwaway's home, logs and macOS leftovers are removed unless `--keep` |
 | `dsd list [--builds]` | variants, what is running, ports, ids; with `--builds`, the builds and what uses each |
 | `dsd logs <ref> [app \| relay \| server \| plugin <name>] [--follow]` | the current run's log |
@@ -95,7 +114,7 @@ taken over. Build logs: `~/Library/Logs/io.github.taliesinb.deepsea/builds/`.
 | `dsd builds [list \| make [<harness ref>]]` | list builds, or make one (default: the pinned commit) |
 | `dsd link` | point this checkout's `harness` at the build of its pinned commit, building it if needed |
 | `dsd drive [-v <ref>] <op> …` | one operation on a running throwaway, as JSON (below) |
-| `dsd script <file.mjs> [-v <ref>]` | run a script with the same operations as a JS API |
+| `dsd script <file.mjs> [-v <ref>]` | run a script: its default export gets `{ id, url, login, server(op, body), app(op, body), sleep }` and its return value is printed |
 | `dsd topics [list]` | both repositories' topics: parents, commits, what each requires, how far behind; `check`, `integrate`, `rebase` not built yet |
 | `dsd worktree add <topic> [--from <ref>] \| list \| remove <topic>` | a topic's worktree in `<repo>-worktrees/<topic>/`: branch `topic/<topic>` (from `topic/base`), `harness` link, pre-commit check; `remove` refuses uncommitted changes and keeps the branch |
 | `dsd check [--staged \| <rev range>] [--install-hook]` | scan added lines for local paths, private addresses, tailnet names, email addresses and `private/check-patterns.txt`; the pre-commit hook runs `--staged` |
@@ -106,7 +125,7 @@ taken over. Build logs: `~/Library/Logs/io.github.taliesinb.deepsea/builds/`.
 |---|---|
 | (none) | the installed named variant: its LaunchAgent and app |
 | `--throwaway` | server, relay and app, as child processes |
-| `--throwaway-app` | server and app (connected straight to the server), no relay |
+| `--throwaway-app` | server and app (connected straight to the server), no relay; in the foreground until Ctrl-C or the app or server exits, with `--detach` until the app quits or `dsd stop` |
 | `--throwaway-server` | server only: in the foreground until Ctrl-C, SIGTERM or the server's exit, then cleaned up; with `--detach`, until `dsd stop`, or `dsd gc` after `--ttl` minutes (default 120) |
 
 A throwaway's home holds `variant.yml` (id, parent, harness commit, the
@@ -136,7 +155,7 @@ Rules:
 - `topics rebase` and `topics integrate` take a lock, and refuse to rewrite
   a topic whose worktree has uncommitted work.
 - Throwaway apps start hidden (an invisible window that still renders, never
-  taking focus) unless `--visible`.
+  taking focus) unless `--visible`; quitting one removes its throwaway.
 
 **Inheriting into a throwaway** (empty by default):
 
@@ -154,7 +173,7 @@ does not choose. Without `-v`, it drives the caller's one running throwaway.
 | Layer | Operations |
 |---|---|
 | Server driver (plugins/test-driver, loaded into every throwaway; done) | `health`, `create-session`, `prompt`, `wait`, `command`, `events`, `cancel`, `sessions`, `invoke`, `url` |
-| App automation socket (`apps/macos`, throwaway apps only) | `load`, `reload`, `wait-page`, `eval`, `resize`, `view desktop\|mobile`, `appearance light\|dark`, `click`, `type` (real input events in the app's own window), `describe`, `snapshot` (element or window), `window-info`, `quit` |
+| App automation socket (`apps/macos`, throwaway apps only; done) | `load`, `reload`, `wait-page`, `eval`, `resize`, `view desktop\|mobile`, `appearance light\|dark\|system`, `click`, `type` (real input events in the app's own window), `describe`, `snapshot` (element or page), `window-info`, `app-log`, `quit` |
 | Page helpers (test-driver plugin, browser half) | `open-session`, `new-session`, `archive`, `select-model`, `set-mode`, `enter`, `submit`, `last-card`, `list-sessions` |
 
 The server driver's operations:
@@ -175,8 +194,22 @@ timed out, so a shell script can test a turn by its exit status. The plugin's
 README has the HTTP operations and the safety rules (throwaway homes only,
 loopback, a per-process token, no browser origin).
 
-A throwaway started with `--throwaway-server` has no app; window operations
-fail with "no app in this throwaway".
+The app's operations (apps/macos/README.md has the protocol):
+
+| Operation | Does |
+|---|---|
+| `load <url>`, `reload` | navigate; answers when the page has loaded |
+| `wait-page [--selector <css>] [--text <t>] [--expression <js>] [--timeout <s>] [--settle <ms>]` | until a selector matches, the page shows the text, or the function body returns something truthy |
+| `eval <js \| ->` | run a function body in the page (`await` allowed); its JSON value |
+| `resize <W>x<H>`, `view desktop\|mobile`, `appearance light\|dark\|system` | the window's content size, View ▸ Desktop / Mobile, the app's appearance |
+| `click <css> [--nth <n>] [--clicks <n>]`, `click --text <label> [<css>]`, `click --x <x> --y <y>` | real mouse events at the element's centre or a point; `--text` takes the innermost visible element showing that text, optionally within a selector |
+| `type <text \| ->`, `type --key <Enter \| Escape \| cmd+k \| …>` | real key events, finished when it answers |
+| `describe <css> [--nth <n>]` | the element inspector's record: selector, rect, text, HTML, accessibility, styles, slots, React chain, ancestors, children |
+| `snapshot <css>`, `snapshot --window [--chrome]` | an element snapshot (element, page with it outlined, record) or the page; files under the app's log directory, images by content hash |
+| `window-info`, `app-log [--lines <n>]`, `quit` | the window's frame, screen and modes; the run log; quit (which removes the throwaway) |
+
+A throwaway started with `--throwaway-server` has no app; app operations
+fail with "has no app".
 
 ## Implementation order
 
@@ -187,6 +220,7 @@ fail with "no app in this throwaway".
    server half (done). This comes first, before agents work on topics in
    parallel.
 2. `apps/macos` builds, `run --throwaway-app`, the automation socket, the
-   app and page operations of `drive`, `script`.
+   app operations of `drive`, `script` (done); the page helpers (test-driver
+   browser half) when a topic needs them.
 3. Named variants: `new`, `build --install`, `run`.
 4. `topics check | integrate | rebase`, `exec` (commands in a build with a throwaway home).
