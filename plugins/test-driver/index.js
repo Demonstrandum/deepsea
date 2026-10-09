@@ -154,7 +154,8 @@ export function apply(ctx) {
         ...(typeof args.preset === 'string' ? { agentPreset: args.preset } : {}),
       })
       const sessionId = created.sessionId
-      if (args.model !== undefined) await sc.selectModel({ sessionId, selected: parseModel(args.model) })
+      // The request is the selection itself beside the session (provider, model, reasoningEffort?).
+      if (args.model !== undefined) await sc.selectModel({ sessionId, ...parseModel(args.model) })
       if (typeof args.title === 'string' && args.title !== '') await sc.rename({ sessionId, title: args.title })
       return { ...plain(created), workspaceId }
     },
