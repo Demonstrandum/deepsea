@@ -1,9 +1,10 @@
 /**
- * dsd run <v> --throwaway-server [--detach] [--source <ref>] [--harness <ref>] [--keep] [--timeout <s>]
+ * dsd run <v> --throwaway-server [--detach] [--plugins <names|all>] [--source <ref>] [--harness <ref>] [--keep] [--timeout <s>]
  *
  * Stage 1: throwaway servers only. Creates `<parent>-<hex>` with an empty
  * home, starts `dsh web` from the shared build of the harness commit, waits
- * until it answers, and prints its facts as JSON. In the foreground (the
+ * until it answers, and prints its facts as JSON. `--plugins` loads this
+ * checkout's plugins in place (lib/plugins.mjs). In the foreground (the
  * default) it stops and cleans up on Ctrl-C, SIGTERM or the server's exit;
  * with --detach it returns and `dsd stop` ends it.
  */
@@ -11,15 +12,16 @@ import { randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { join } from 'node:path'
-import { buildPaths, ensureBuild, harnessRepo, readLock, resolveHarnessCommit } from '../lib/harness.mjs'
+import { buildPaths, ensureBuild, harnessRepo, linkHarness, readLock, resolveHarnessCommit } from '../lib/harness.mjs'
 import { openRunLog } from '../lib/logs.mjs'
+import { preparePlugin, selectPlugins, writePluginPatches } from '../lib/plugins.mjs'
 import { homeOf, logDirOf, variantName } from '../lib/paths.mjs'
 import { alive, freePort } from '../lib/processes.mjs'
 import { removeVariant } from '../lib/remove.mjs'
 import { DsdError, isoLocal, note, onlyFlags, parseArgs, printJson, sleep, usage } from '../lib/util.mjs'
 import { checkNamedId, displayName, readVariant, writeState, writeVariant } from '../lib/variants.mjs'
 
-/** The server's command line; its tail is also the signature dsd checks before signalling. */
+/** The server's entry; with the port, the signature dsd checks before signalling. */
 const SERVER_ENTRY = 'apps/cli/src/bin.ts'
 
 /**
@@ -91,8 +93,8 @@ function tail(path, lines) {
 }
 
 export async function run(argv) {
-  const args = parseArgs(argv, ['source', 'harness', 'timeout'])
-  onlyFlags(args, ['throwaway', 'throwaway-app', 'throwaway-server', 'detach', 'source', 'harness', 'keep', 'timeout'])
+  const args = parseArgs(argv, ['source', 'harness', 'timeout', 'plugins'])
+  onlyFlags(args, ['throwaway', 'throwaway-app', 'throwaway-server', 'detach', 'source', 'harness', 'keep', 'timeout', 'plugins'])
   const parent = args._[0]
   if (parent === undefined || args._.length > 1) usage('dsd run <variant> --throwaway-server [--detach]')
   checkNamedId(parent)
@@ -110,19 +112,25 @@ export async function run(argv) {
   const repo = harnessRepo(lock)
   const commit = resolveHarnessCommit(args.harness ?? lock.commit, repo)
   const build = await ensureBuild(commit, repo)
+  const plugins = selectPlugins(args.plugins)
+  if (plugins.length > 0) {
+    await linkHarness()
+    for (const plugin of plugins) preparePlugin(plugin)
+  }
 
   const id = newThrowawayId(parent)
   const home = makeHome(id, { parent, commit, build })
   const port = await freePort()
   const log = openRunLog(join(logDirOf(id), 'server'))
   const env = { ...process.env, DSH_HOME: home }
-  const child = spawn(process.execPath, ['--import', 'tsx/esm', SERVER_ENTRY, 'web', '--no-open', '--port', String(port)], {
+  const patches = writePluginPatches(plugins, join(home, 'run', 'plugins'))
+  const child = spawn(process.execPath, ['--import', 'tsx/esm', SERVER_ENTRY, '--profile', 'web', ...patches.flatMap(p => ['--patch', p]), '--no-open', '--port', String(port)], {
     cwd: build, env, detached: true, stdio: ['ignore', log.fd, log.fd],
   })
-  log.identify(`${variantName(id)} server pid ${child.pid} dsh web --port ${port} harness ${commit.slice(0, 10)}`)
+  log.identify(`${variantName(id)} server pid ${child.pid} dsh web --port ${port} harness ${commit.slice(0, 10)}${plugins.length ? ` plugins ${plugins.map(p => p.name).join(',')}` : ''}`)
   log.name(child.pid)
   log.close()
-  const signature = `${SERVER_ENTRY} web --no-open --port ${port}`
+  const signature = [SERVER_ENTRY, `--no-open --port ${port}`]
   writeState(id, { pid: child.pid, signature, port, log: log.path, started: isoLocal(), harness: commit, build: buildPaths(commit).dir })
 
   const cleanup = async () => removeVariant(id, { keep: Boolean(args.keep) })
@@ -137,7 +145,7 @@ export async function run(argv) {
   printJson({
     id, name: variantName(id), display: displayName(id), home, mode: 'server',
     url: ready.url, login: `${ready.url}?token=${ready.token}`, token: ready.token,
-    pid: child.pid, port, log: log.path, harness: commit.slice(0, 10), detached: Boolean(args.detach),
+    pid: child.pid, port, log: log.path, harness: commit.slice(0, 10), plugins: plugins.map(p => p.name), detached: Boolean(args.detach),
   })
 
   if (args.detach) { child.unref(); return }

@@ -26,14 +26,15 @@ export function commandOf(pid) {
 }
 
 /**
- * Whether `pid` is still the process dsd started, judged by a substring of its
- * command line recorded at start. A recycled pid fails this, so dsd never
- * signals a stranger.
+ * Whether `pid` is still the process dsd started, judged by fragments of its
+ * command line recorded at start (one string or several, all required). A
+ * recycled pid fails this, so dsd never signals a stranger.
  */
 export function runningAs(pid, signature) {
-  if (!signature) return false
+  const parts = [signature].flat().filter(Boolean)
+  if (parts.length === 0) return false
   const command = commandOf(pid)
-  return command !== undefined && command.includes(signature)
+  return command !== undefined && parts.every(part => command.includes(part))
 }
 
 /** SIGTERM a process group, then SIGKILL whatever is left after `graceMs`. */

@@ -9,12 +9,12 @@
  * lock whose pid is gone is taken over.
  */
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { openRunLog } from './logs.mjs'
 import { buildsDir, machineLogDir, mainCheckout, REPO, ROOT_NAME } from './paths.mjs'
 import { alive } from './processes.mjs'
-import { DsdError, git, isoLocal, note, sleep } from './util.mjs'
+import { DsdError, git, isoLocal, note, sleep, usage } from './util.mjs'
 
 /** Parse harness.lock text: `key value` lines. */
 export function parseLock(text) {
@@ -139,4 +139,27 @@ export async function ensureBuild(commit, repo = harnessRepo()) {
   } finally {
     rmSync(lock, { recursive: true, force: true })
   }
+}
+
+/**
+ * Point this checkout's `harness` at the build of its pinned commit, building
+ * it if needed. Returns the link, the build and the commit.
+ */
+export async function linkHarness() {
+  const lock = readLock()
+  const repo = harnessRepo(lock)
+  const commit = resolveHarnessCommit(lock.commit, repo)
+  const dir = await ensureBuild(commit, repo)
+  const path = join(REPO, 'harness')
+  try {
+    const stat = lstatSync(path)
+    if (!stat.isSymbolicLink()) usage(`${path} exists and is not a link; move it away first`)
+    if (readlinkSync(path) === dir) return { link: path, build: dir, commit }
+    unlinkSync(path)
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error
+  }
+  symlinkSync(dir, path)
+  note(`harness -> ${dir}`)
+  return { link: path, build: dir, commit }
 }

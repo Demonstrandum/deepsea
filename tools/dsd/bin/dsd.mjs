@@ -8,7 +8,7 @@ import { DsdError } from '../lib/util.mjs'
 
 const HELP = `dsd — DeepSea developer CLI (tools/dsd/README.md)
 
-  dsd run <variant> --throwaway-server [--detach] [--source <ref>] [--harness <ref>] [--keep]
+  dsd run <variant> --throwaway-server [--detach] [--plugins <names|all>] [--source <ref>] [--harness <ref>] [--keep]
   dsd stop [<variant>] [--keep]
   dsd list [--builds] [--json]
   dsd gc [--builds] [--dry-run]

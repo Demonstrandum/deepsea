@@ -41,10 +41,15 @@ configuration with a fresh id `<parent>-<hex>` and an empty home. They take
 free ports, have no Serve path, no LaunchAgent and no LaunchServices
 registration, and their app uses a non-persistent WebKit store, so removing
 the home and the temporary build directory removes everything. A throwaway
-runs the parent's build unless given `--source <commit | worktree path>`; a
-worktree source runs in place, so a plugin under development can be rebuilt
-and reloaded. Plugins that declare themselves machine-wide
-(plugins/AGENTS.md) are left out unless `--with <name>`.
+runs the shared build of the pinned harness commit (`--source <ref>` takes the
+pin from a commit of this repository, `--harness <ref>` names a harness
+commit) and loads plugins in place from the checkout dsd runs in, so a topic
+worktree's dsd tests that worktree's plugins as they are, and a rebuilt
+client bundle hot-swaps into the open page. `--plugins <names|all>` selects
+them: each plugin's own bundle patch, its package name replaced by the
+absolute path of its entry module, is passed to the server; a plugin never
+installed or built is installed and built first. `all` leaves machine-wide
+plugins (plugins/AGENTS.md) out; naming one includes it.
 
 ## Builds
 
@@ -76,7 +81,7 @@ taken over. Build logs: `~/Library/Logs/io.github.taliesinb.deepsea/builds/`.
 |---|---|
 | `dsd new <v> [--from <v>] [--color <hex>] [--source <ref>]` | create a named variant: home, `variant.yml`, port block, and the home's `logs` / `support` / `source` links (LAYOUT.md §4) |
 | `dsd build <v> [--install \| --throwaway]` | make sure the builds of its source exist, then build its apps (client, server host, relay) from `apps/macos`; `--install` installs them (LAYOUT.md §6); `--throwaway` builds the apps into a temporary directory |
-| `dsd run <v> [--throwaway \| --throwaway-app \| --throwaway-server] [--detach] [--source <ref>] [--harness <ref>] [--keep]` | start it, building first if needed; prints id, home, URL, login URL (with token), pids, log, app path, automation socket. `--source` takes the harness pin from a commit of this repository; `--harness` names a harness commit directly |
+| `dsd run <v> [--throwaway \| --throwaway-app \| --throwaway-server] [--detach] [--plugins <names\|all>] [--source <ref>] [--harness <ref>] [--keep]` | start it, building first if needed; prints id, home, URL, login URL (with token), pids, log, app path, automation socket. `--source` takes the harness pin from a commit of this repository; `--harness` names a harness commit directly |
 | `dsd stop [<ref>] [--keep]` | stop it; a throwaway's home, logs and macOS leftovers are removed unless `--keep` |
 | `dsd list [--builds]` | variants, what is running, ports, ids; with `--builds`, the builds and what uses each |
 | `dsd logs <ref> [app \| relay \| server \| plugin <name>] [--follow]` | the current run's log |
@@ -113,6 +118,8 @@ Rules:
   launch URL in its log, then an HTTP answer).
 - dsd signals a process only while its command line still matches what dsd
   started, so a recycled pid is never signalled.
+- `--plugins` rebuilds a plugin's browser half when its sources are newer
+  than `lib/client.js`.
 - `stop`, `build --install` and `run` refuse the variant hosting the calling
   agent unless `--self`; every operation on a named variant is logged, and a
   second agent's conflicting operation waits for or refuses the first.
@@ -146,9 +153,9 @@ fail with "no app in this throwaway".
 ## Implementation order
 
 1. Shared builds (`_builds/`, the build lock, the `harness` link),
-   `run --throwaway-server`, `stop`, `list`, `gc` (done); the machine-wide
-   plugin rule and the test-driver's server half (with the first plugin
-   topics). This comes first, before agents work on topics in parallel.
+   `run --throwaway-server` with `--plugins` and the machine-wide rule,
+   `stop`, `list`, `gc` (done); the test-driver's server half (next). This
+   comes first, before agents work on topics in parallel.
 2. `apps/macos` builds, `run --throwaway-app`, the automation socket,
    `drive`, `script`.
 3. Named variants: `new`, `build --install`, `run`.

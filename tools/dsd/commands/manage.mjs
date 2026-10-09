@@ -1,12 +1,12 @@
 /**
  * dsd stop | list | gc | builds | link
  */
-import { existsSync, lstatSync, readdirSync, readlinkSync, rmSync, symlinkSync, unlinkSync } from 'node:fs'
+import { existsSync, lstatSync, readdirSync, readlinkSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { buildPaths, buildReady, buildRecord, ensureBuild, harnessRepo, readLock, resolveHarnessCommit } from '../lib/harness.mjs'
+import { buildPaths, buildReady, buildRecord, ensureBuild, harnessRepo, linkHarness, readLock, resolveHarnessCommit } from '../lib/harness.mjs'
 import { buildsDir, REPO } from '../lib/paths.mjs'
 import { removeVariant } from '../lib/remove.mjs'
-import { git, note, onlyFlags, parseArgs, printJson, usage } from '../lib/util.mjs'
+import { git, onlyFlags, parseArgs, printJson, usage } from '../lib/util.mjs'
 import { listVariants, resolveRef } from '../lib/variants.mjs'
 
 /** dsd stop [<ref>] [--keep] */
@@ -124,19 +124,5 @@ export async function link(argv) {
   const args = parseArgs(argv)
   onlyFlags(args, [])
   if (args._.length > 0) usage('dsd link')
-  const lock = readLock()
-  const repo = harnessRepo(lock)
-  const commit = resolveHarnessCommit(lock.commit, repo)
-  const dir = await ensureBuild(commit, repo)
-  const path = join(REPO, 'harness')
-  try {
-    const stat = lstatSync(path)
-    if (!stat.isSymbolicLink()) usage(`${path} exists and is not a link; move it away first`)
-    unlinkSync(path)
-  } catch (error) {
-    if (error.code !== 'ENOENT') throw error
-  }
-  symlinkSync(dir, path)
-  note(`harness -> ${dir}`)
-  printJson({ link: path, build: dir, commit })
+  printJson(await linkHarness())
 }
