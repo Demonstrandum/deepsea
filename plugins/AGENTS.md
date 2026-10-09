@@ -69,6 +69,8 @@ Dependencies on the harness are `link:` devDependencies through the
 
 - `pnpm test` (node:test) for host logic and pure client helpers;
   `pnpm typecheck` against the linked harness packages.
-- Exercise a plugin in a throwaway home (`DSH_HOME=$(mktemp -d)`) or a
-  variant set aside for trials — never in the instance the user is working
-  in.
+- Exercise a plugin in a throwaway: `dsd run release --throwaway-server
+  --scripted --plugins <name>` (tools/dsd/README.md), never in the instance
+  the user is working in. With `--scripted` every prompt is a JSONL script
+  of the model's exact reply, so turns, tool calls and their UI can be
+  tested without an API key (plugins/scripted-model/README.md).

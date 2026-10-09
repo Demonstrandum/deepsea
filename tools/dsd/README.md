@@ -51,6 +51,12 @@ absolute path of its entry module, is passed to the server; a plugin never
 installed or built is installed and built first. `all` leaves machine-wide
 plugins (plugins/AGENTS.md) out; naming one includes it.
 
+`--scripted` loads `plugins/scripted-model` and makes its `scripted/script`
+model the throwaway's default: every prompt is then a JSONL script of the
+exact reply (text, reasoning, tool calls, usage, provider errors), so a
+throwaway can run real turns, tool calls and their UI with no API key and
+the same result every time (plugins/scripted-model/README.md).
+
 ## Builds
 
 Variants run immutable builds, one per commit, in `~/.deepsea/_builds/`
@@ -81,7 +87,7 @@ taken over. Build logs: `~/Library/Logs/io.github.taliesinb.deepsea/builds/`.
 |---|---|
 | `dsd new <v> [--from <v>] [--color <hex>] [--source <ref>]` | create a named variant: home, `variant.yml`, port block, and the home's `logs` / `support` / `source` links (LAYOUT.md §4) |
 | `dsd build <v> [--install \| --throwaway]` | make sure the builds of its source exist, then build its apps (client, server host, relay) from `apps/macos`; `--install` installs them (LAYOUT.md §6); `--throwaway` builds the apps into a temporary directory |
-| `dsd run <v> [--throwaway \| --throwaway-app \| --throwaway-server] [--detach] [--plugins <names\|all>] [--source <ref>] [--harness <ref>] [--keep]` | start it, building first if needed; prints id, home, URL, login URL (with token), pids, log, app path, automation socket. `--source` takes the harness pin from a commit of this repository; `--harness` names a harness commit directly |
+| `dsd run <v> [--throwaway \| --throwaway-app \| --throwaway-server] [--detach] [--scripted] [--plugins <names\|all>] [--source <ref>] [--harness <ref>] [--keep]` | start it, building first if needed; prints id, home, URL, login URL (with token), pids, log, app path, automation socket. `--source` takes the harness pin from a commit of this repository; `--harness` names a harness commit directly |
 | `dsd stop [<ref>] [--keep]` | stop it; a throwaway's home, logs and macOS leftovers are removed unless `--keep` |
 | `dsd list [--builds]` | variants, what is running, ports, ids; with `--builds`, the builds and what uses each |
 | `dsd logs <ref> [app \| relay \| server \| plugin <name>] [--follow]` | the current run's log |
@@ -158,8 +164,8 @@ fail with "no app in this throwaway".
 1. Shared builds (`_builds/`, the build lock, the `harness` link),
    `run --throwaway-server` with `--plugins` and the machine-wide rule,
    `stop`, `list`, `gc` with ownership and time limits, `worktree`,
-   `topics list`, `check` (done); a scripted model provider and the
-   test-driver's server half (next). This comes first, before agents work on
+   `topics list`, `check`, `--scripted` (done); the test-driver's server
+   half (next). This comes first, before agents work on
    topics in parallel.
 2. `apps/macos` builds, `run --throwaway-app`, the automation socket,
    `drive`, `script`.

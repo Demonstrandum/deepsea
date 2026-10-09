@@ -1,0 +1,6 @@
+# Bundle patch, used when the package is installed into a profile.
+# Registers the `scripted` route (model `script`). For throwaway and test
+# variants; `dsd run … --scripted` loads it and makes it the default model.
+- insert:
+    - id: deepsea-scripted-model
+      name: "@deepsea/scripted-model"

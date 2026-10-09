@@ -1,10 +1,11 @@
 /**
- * dsd run <v> --throwaway-server [--detach] [--plugins <names|all>] [--source <ref>] [--harness <ref>] [--keep] [--timeout <s>]
+ * dsd run <v> --throwaway-server [--detach] [--scripted] [--plugins <names|all>] [--source <ref>] [--harness <ref>] [--keep] [--timeout <s>]
  *
  * Stage 1: throwaway servers only. Creates `<parent>-<hex>` with an empty
  * home, starts `dsh web` from the shared build of the harness commit, waits
  * until it answers, and prints its facts as JSON. `--plugins` loads this
- * checkout's plugins in place (lib/plugins.mjs). In the foreground (the
+ * checkout's plugins in place (lib/plugins.mjs); `--scripted` adds the
+ * scripted model (plugins/scripted-model) and makes it the default model. In the foreground (the
  * default) it stops and cleans up on Ctrl-C, SIGTERM or the server's exit;
  * with --detach it returns and `dsd stop` ends it.
  */
@@ -40,6 +41,13 @@ const PROFILE_PATCH = `# written by dsd for throwaway variants
     credentialOnboarding: false
 `
 
+/** Rows for --scripted: the scripted model is the default model. */
+const SCRIPTED_PATCH = `- id: agent-default-model
+  config:
+    provider: scripted
+    model: script
+`
+
 /** A fresh id `<parent>-<hex>` with no home and no logs yet. */
 function newThrowawayId(parent) {
   for (;;) {
@@ -55,13 +63,13 @@ function welcomeNoticeVersion(build) {
 }
 
 /** Create the throwaway's home: configuration, profile patch, settings, links. */
-function makeHome(id, { parent, commit, build, expires }) {
+function makeHome(id, { parent, commit, build, expires, scripted }) {
   const home = homeOf(id)
   mkdirSync(join(home, 'profiles', 'web'), { recursive: true, mode: 0o700 })
   const owner = currentOwner()
   writeVariant(id, { id, parent, throwaway: true, mode: 'server', harness: commit, created: isoLocal(),
     ownerSession: owner.session, ownerCheckout: owner.checkout, expires })
-  writeFileSync(join(home, 'profiles', 'web', 'cordis.patch.yml'), PROFILE_PATCH, { mode: 0o600 })
+  writeFileSync(join(home, 'profiles', 'web', 'cordis.patch.yml'), PROFILE_PATCH + (scripted ? SCRIPTED_PATCH : ''), { mode: 0o600 })
   const notice = welcomeNoticeVersion(build)
   if (notice) writeFileSync(join(home, 'settings.yaml'), `ui-onboarding:\n  welcomeNoticeVersion: '${notice}'\n`, { mode: 0o600 })
   mkdirSync(logDirOf(id), { recursive: true, mode: 0o700 })
@@ -96,7 +104,7 @@ function tail(path, lines) {
 
 export async function run(argv) {
   const args = parseArgs(argv, ['source', 'harness', 'timeout', 'plugins', 'ttl'])
-  onlyFlags(args, ['throwaway', 'throwaway-app', 'throwaway-server', 'detach', 'source', 'harness', 'keep', 'timeout', 'plugins', 'ttl'])
+  onlyFlags(args, ['throwaway', 'throwaway-app', 'throwaway-server', 'detach', 'source', 'harness', 'keep', 'timeout', 'plugins', 'ttl', 'scripted'])
   const parent = args._[0]
   if (parent === undefined || args._.length > 1) usage('dsd run <variant> --throwaway-server [--detach]')
   checkNamedId(parent)
@@ -115,6 +123,7 @@ export async function run(argv) {
   const commit = resolveHarnessCommit(args.harness ?? lock.commit, repo)
   const build = await ensureBuild(commit, repo)
   const plugins = selectPlugins(args.plugins)
+  if (args.scripted && !plugins.some(p => p.name === 'scripted-model')) plugins.push(...selectPlugins('scripted-model'))
   if (plugins.length > 0) {
     await linkHarness()
     for (const plugin of plugins) preparePlugin(plugin)
@@ -125,7 +134,7 @@ export async function run(argv) {
   if (ttl !== undefined && !(ttl > 0)) usage('--ttl takes a number of minutes')
   const expires = ttl === undefined ? undefined : isoLocal(new Date(Date.now() + ttl * 60_000))
   const id = newThrowawayId(parent)
-  const home = makeHome(id, { parent, commit, build, expires })
+  const home = makeHome(id, { parent, commit, build, expires, scripted: Boolean(args.scripted) })
   const port = await freePort()
   const log = openRunLog(join(logDirOf(id), 'server'))
   const env = { ...process.env, DSH_HOME: home }
