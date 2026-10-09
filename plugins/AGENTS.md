@@ -23,6 +23,47 @@ The harness topics a plugin needs are declared in its package.json,
 Dependencies on the harness are `link:` devDependencies through the
 `harness` link (`link:../../harness/packages/...`), for types and tests only.
 
+## Names
+
+Every name a plugin puts into a namespace it shares with the harness or
+with other plugins carries a DeepSea prefix, so it can never collide with an
+upstream name and can be found by searching for `deepsea`. Plugin names
+leave out implementation suffixes (`-command`, `-tool`, `-status`): the
+plugin is called after what it does (`login`, `billing`, `reboot`).
+
+| Namespace | Form | Example |
+|---|---|---|
+| Plugin directory, package, loader row | `plugins/<name>`, `@deepsea/<name>`, `deepsea-<name>` | `plugins/reboot`, `@deepsea/reboot`, `deepsea-reboot` |
+| Cordis plugin `name` export | the loader row id | `deepsea-reboot` |
+| Services a plugin provides (`ctx.provide`) | `deepsea<Feature>` | `deepseaBilling` |
+| Fetch routes (`ctx.connection.fetch`, under `/api`) | `/api/deepsea-<name>/…` | `/api/deepsea-billing/snapshot` |
+| Web server routes (outside `/api`) | `/deepsea-<name>/…` | `/deepsea-test-driver/health` |
+| HTTP headers of our own | `x-deepsea-<name>[-…]` | `x-deepsea-tailscale` |
+| CSS classes, DOM ids, `data-*` attributes | `deepsea-<name>-…`, `data-deepsea-…` | `deepsea-billing-pill` |
+| Page globals | `__DEEPSEA_<NAME>__` | `__DEEPSEA_APP__` |
+| Browser storage keys, `Symbol.for` keys | `deepsea.<name>.<key>` | `deepsea.billing.dismissed` |
+| Config schema `vendor` | the loader row id | `deepsea-billing` |
+
+Names the model or the person sees keep their meaning and stay as they are:
+tool names (`list_dir`, `wait`), slash commands (`/reboot`), setting labels.
+
+Contracts between plugins, so plugins ported separately agree:
+
+| Contract | Provided by | Used by |
+|---|---|---|
+| service `deepseaBilling` (session snapshots) | `billing` | (tests) |
+| service `deepseaTailscaleRelay` (relay status, restart) | `tailscale` | `reboot` |
+| service `deepseaSessionOwners` (which login drives which session) | `tailscale` | `billing` |
+| service `deepseaRemoteWorkspaces` (remote session rows) | `remote-workspaces` (browser half) | `numbered-switching` |
+| headers `x-deepsea-tailscale: 1`, `x-deepsea-tailscale-self: 1` on proxied requests | `tailscale` | `import-sessions`, `import-api-keys`, `session-introspect` |
+| header `X-DeepSea-Forward-Error` (loopback forward refusals) | `tailscale` | the macOS app |
+| attribute `data-deepsea-remote-session` on remote session rows | `remote-workspaces` | `numbered-switching` |
+
+A plugin that uses a contract whose provider is not ported yet keeps the use
+(optional, as before) under the new name. `dialog-keys.ts` (Enter presses a
+dialog's default button) is copied into each plugin with a dialog; keep the
+copies identical.
+
 ## Host half
 
 - Register through `ctx` (tools, commands, Fetch routes, listeners); wrap
