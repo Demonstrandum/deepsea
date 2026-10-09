@@ -27,10 +27,11 @@ const SERVER_ENTRY = 'apps/cli/src/bin.ts'
 
 /**
  * Rows every throwaway's web profile gets: no telemetry leaves the machine,
- * and the first-run "Add an API key" dialog does not cover the page (the
- * Models page still offers every key).
+ * the first-run "Add an API key" dialog does not cover the page (the Models
+ * page still offers every key), and the default workspace is made inside the
+ * home (`<home>/documents/…`) instead of the user's Documents folder.
  */
-const PROFILE_PATCH = `# written by dsd for throwaway variants
+const profilePatch = home => `# written by dsd for throwaway variants
 - id: session-log-deepseek
   config:
     enabled: false
@@ -39,6 +40,9 @@ const PROFILE_PATCH = `# written by dsd for throwaway variants
 - id: ui-settings-models
   config:
     credentialOnboarding: false
+- id: workspace-controller
+  config:
+    documentsDirectory: ${JSON.stringify(join(home, 'documents'))}
 `
 
 /** Rows for --scripted: the scripted model is the default model. */
@@ -69,7 +73,7 @@ function makeHome(id, { parent, commit, build, expires, scripted }) {
   const owner = currentOwner()
   writeVariant(id, { id, parent, throwaway: true, mode: 'server', harness: commit, created: isoLocal(),
     ownerSession: owner.session, ownerCheckout: owner.checkout, expires })
-  writeFileSync(join(home, 'profiles', 'web', 'cordis.patch.yml'), PROFILE_PATCH + (scripted ? SCRIPTED_PATCH : ''), { mode: 0o600 })
+  writeFileSync(join(home, 'profiles', 'web', 'cordis.patch.yml'), profilePatch(home) + (scripted ? SCRIPTED_PATCH : ''), { mode: 0o600 })
   const notice = welcomeNoticeVersion(build)
   if (notice) writeFileSync(join(home, 'settings.yaml'), `ui-onboarding:\n  welcomeNoticeVersion: '${notice}'\n`, { mode: 0o600 })
   mkdirSync(logDirOf(id), { recursive: true, mode: 0o700 })

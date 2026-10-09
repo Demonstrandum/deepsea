@@ -32,7 +32,7 @@ is `{ "ok": true, "value": … }` or `{ "ok": false, "error": { "code",
 | Op | Body | Value |
 |---|---|---|
 | `health` | — | pid, port, home, uptime, and loader rows that should run but do not (pending, loading, failed) |
-| `create-session` | `cwd?`, `preset?`, `model?` (`provider/model[:effort]`), `title?` | the session id (and the workspace made for `cwd`) |
+| `create-session` | `cwd?`, `preset?`, `model?` (`provider/model[:effort]`), `title?` | the session id and its workspace: the one for `cwd`, else the default workspace (made as the GUI would on first use) |
 | `prompt` | `sessionId`, `text`, `mode?` (`queue` / `steer`), `wait?`, `timeoutMs?` | acceptance and the event seq it starts from; with `wait`, also what `wait` returns |
 | `wait` | `sessionId`, `since?`, `timeoutMs?` (default 120 s) | `idle`, the agent's status, the next seq, and a summary of the events from `since` |
 | `command` | `sessionId`, `line` | the command's execution: id and result |

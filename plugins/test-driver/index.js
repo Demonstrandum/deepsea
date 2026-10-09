@@ -130,23 +130,33 @@ export function apply(ctx) {
       loader: loaderProblems(ctx.get('loader')),
     }),
 
-    'create-session': async (args) => {
+    'create-session': async (args, signal) => {
+      const registry = ctx.get('workspaceRegistry')
+      if (registry === undefined) throw new HttpError(503, 'no-workspaces', 'the workspace registry is not mounted')
       let workspaceId
       if (args.cwd !== undefined) {
         const cwd = resolve(String(args.cwd))
         if (!existsSync(cwd) || !statSync(cwd).isDirectory()) throw new HttpError(400, 'bad-cwd', `${cwd} is not a directory`)
-        const registry = ctx.get('workspaceRegistry')
-        if (registry === undefined) throw new HttpError(503, 'no-workspaces', 'the workspace registry is not mounted')
         workspaceId = (await registry.create(cwd)).id
+      } else {
+        // The default workspace, as the GUI would make it on first use (inside a throwaway's home:
+        // dsd points its Documents directory there); else a workspace in the home.
+        const made = await ctx.get('workspaceController')?.initializeDefault(signal)
+        if (made?.workspace?.workspaceId !== undefined) workspaceId = made.workspace.workspaceId
+        else {
+          const dir = join(home, 'workspace')
+          await mkdir(dir, { recursive: true })
+          workspaceId = (await registry.create(dir)).id
+        }
       }
       const created = await sc.create({
-        ...(workspaceId === undefined ? {} : { workspaceId }),
+        workspaceId,
         ...(typeof args.preset === 'string' ? { agentPreset: args.preset } : {}),
       })
       const sessionId = created.sessionId
       if (args.model !== undefined) await sc.selectModel({ sessionId, selected: parseModel(args.model) })
       if (typeof args.title === 'string' && args.title !== '') await sc.rename({ sessionId, title: args.title })
-      return { ...plain(created), ...(workspaceId === undefined ? {} : { workspaceId }) }
+      return { ...plain(created), workspaceId }
     },
 
     command: async (args, signal) => {

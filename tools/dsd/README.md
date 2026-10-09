@@ -112,7 +112,8 @@ taken over. Build logs: `~/Library/Logs/io.github.taliesinb.deepsea/builds/`.
 A throwaway's home holds `variant.yml` (id, parent, harness commit, the
 creating agent's session and checkout, the expiry of a detached one),
 `run/state.json` (pid, port, URL, token, log; 0600), a web profile patch
-that turns telemetry off and the first-run API-key dialog off, `settings.yaml`
+that turns telemetry and the first-run API-key dialog off and puts the
+default workspace inside the home, `settings.yaml`
 acknowledging the first-run notice, and the `logs` and `source` links (LAYOUT.md §4).
 
 Rules:
