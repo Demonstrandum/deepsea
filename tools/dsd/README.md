@@ -50,7 +50,12 @@ client bundle hot-swaps into the open page. `--plugins <names|all>` selects
 them: each plugin's own bundle patch, its package name replaced by the
 absolute path of its entry module, is passed to the server; a plugin never
 installed or built is installed and built first. `all` leaves machine-wide
-plugins (plugins/AGENTS.md) out; naming one includes it.
+plugins (plugins/AGENTS.md) out; naming one includes it. A plugin is loaded
+through the rows of its `cordis.patch.yml` named after its package (nested
+rows too, such as a row inside a preset), so every plugin needs one.
+`--patch <file>[,<file>…]` passes patch files of your own after the plugins'
+patches: a row there replaces a plugin row's whole `config`, or inserts a
+fixture row (a fake server, a test tool).
 
 `--scripted` loads `plugins/scripted-model` and makes its `scripted/script`
 model the throwaway's default: every prompt is then a JSONL script of the
@@ -106,7 +111,7 @@ taken over. Build logs: `~/Library/Logs/io.github.taliesinb.deepsea/builds/`.
 |---|---|
 | `dsd new <v> [--from <v>] [--color <hex>] [--source <ref>]` | create a named variant: home, `variant.yml`, port block, and the home's `logs` / `support` / `source` links (LAYOUT.md §4) |
 | `dsd build <v> [--install \| --throwaway]` | make sure the builds of its source exist, then build its apps (client, server host, relay) from `apps/macos`; `--install` installs them (LAYOUT.md §6); `--throwaway` builds the apps into a temporary directory |
-| `dsd run <v> [--throwaway \| --throwaway-app \| --throwaway-server] [--visible] [--detach] [--scripted] [--plugins <names\|all>] [--app <checkout \| ref>] [--source <ref>] [--harness <ref>] [--ttl <min>] [--keep]` | start it, building first if needed (a throwaway always gets plugins/test-driver and plugins/server-log); prints id, home, URL, login URL (with token), pids, log, app path, automation socket. `--source` takes the harness pin from a commit of this repository; `--harness` names a harness commit directly |
+| `dsd run <v> [--throwaway \| --throwaway-app \| --throwaway-server] [--visible] [--detach] [--scripted] [--plugins <names\|all>] [--patch <file>,…] [--app <checkout \| ref>] [--source <ref>] [--harness <ref>] [--ttl <min>] [--keep]` | start it, building first if needed (a throwaway always gets plugins/test-driver and plugins/server-log); prints id, home, URL, login URL (with token), pids, log, app path, automation socket. `--source` takes the harness pin from a commit of this repository; `--harness` names a harness commit directly |
 | `dsd stop [<ref>] [--keep]` | stop it; a throwaway's home, logs and macOS leftovers are removed unless `--keep` |
 | `dsd list [--builds]` | variants, what is running, ports, ids; with `--builds`, the builds and what uses each |
 | `dsd logs <ref> [app \| relay \| server \| plugin <name>] [--follow]` | the current run's log |

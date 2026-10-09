@@ -1,7 +1,7 @@
 /**
  * dsd run <v> --throwaway-app | --throwaway-server [--visible] [--detach] [--scripted]
  *   [--plugins <names|all>] [--app <checkout | ref>] [--source <ref>] [--harness <ref>]
- *   [--ttl <minutes>] [--keep] [--timeout <s>]
+ *   [--patch <file>[,<file>…]] [--ttl <minutes>] [--keep] [--timeout <s>]
  *
  * Creates `<parent>-<hex>` with an empty home, starts `dsh web` from the
  * shared build of the harness commit, waits until it answers, and with
@@ -9,7 +9,8 @@
  * server: hidden and focus-free unless --visible, with its automation socket.
  * Prints the facts as JSON. `--plugins` loads this checkout's plugins in
  * place (lib/plugins.mjs); `--scripted` adds the scripted model and makes it
- * the default model.
+ * the default model; `--patch` adds patch files of the caller's own after
+ * the plugins' (config overrides, fixture rows).
  *
  * In the foreground (the default) it stops and removes everything on Ctrl-C,
  * SIGTERM, or when the server or the app exits. With --detach it returns; a
@@ -19,7 +20,7 @@
 import { randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { spawn } from 'node:child_process'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { appSocketOf, appSource, buildThrowawayApp, launchApp, waitAppReady } from '../lib/app.mjs'
 import { buildPaths, ensureBuild, harnessRepo, linkHarness, readLock, resolveHarnessCommit } from '../lib/harness.mjs'
 import { openRunLog } from '../lib/logs.mjs'
@@ -115,8 +116,10 @@ function tail(path, lines) {
 }
 
 export async function run(argv) {
-  const args = parseArgs(argv, ['source', 'harness', 'timeout', 'plugins', 'ttl', 'app'])
-  onlyFlags(args, ['throwaway', 'throwaway-app', 'throwaway-server', 'detach', 'source', 'harness', 'keep', 'timeout', 'plugins', 'ttl', 'scripted', 'visible', 'app'])
+  const args = parseArgs(argv, ['source', 'harness', 'timeout', 'plugins', 'ttl', 'app', 'patch'])
+  onlyFlags(args, ['throwaway', 'throwaway-app', 'throwaway-server', 'detach', 'source', 'harness', 'keep', 'timeout', 'plugins', 'ttl', 'scripted', 'visible', 'app', 'patch'])
+  const extraPatches = typeof args.patch === 'string' ? args.patch.split(',').filter(Boolean).map(f => resolve(f)) : []
+  for (const file of extraPatches) if (!existsSync(file)) usage(`--patch: no file ${file}`)
   const parent = args._[0]
   if (parent === undefined || args._.length > 1) usage('dsd run <variant> --throwaway-app | --throwaway-server [--visible] [--detach]')
   checkNamedId(parent)
@@ -166,7 +169,8 @@ export async function run(argv) {
   const port = await freePort()
   const log = openRunLog(join(logDirOf(id), 'server'))
   const env = { ...process.env, DSH_HOME: home }
-  const patches = writePluginPatches(plugins, join(home, 'run', 'plugins'))
+  // The plugins' own patches, then the caller's: a later layer replaces a row's whole config.
+  const patches = [...writePluginPatches(plugins, join(home, 'run', 'plugins')), ...extraPatches]
   const child = spawn(process.execPath, ['--import', 'tsx/esm', SERVER_ENTRY, '--profile', 'web', ...patches.flatMap(p => ['--patch', p]), '--no-open', '--port', String(port)], {
     cwd: build, env, detached: true, stdio: ['ignore', log.fd, log.fd],
   })

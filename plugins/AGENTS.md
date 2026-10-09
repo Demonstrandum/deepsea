@@ -9,7 +9,8 @@ One directory per plugin, each an installable npm package. Names follow
 ```
 plugins/<name>/
   package.json        name, dsh.bundle.patch (and dsh.client for a browser half), scripts
-  cordis.patch.yml    the bundle row(s) this package inserts when installed
+  cordis.patch.yml    the bundle row(s) this package inserts when installed; at least one
+                      row is named after the package (dsd loads the plugin through it)
   index.js            host half (Node): apply(ctx, config)
   src/client/         browser half, if any (TypeScript/TSX)
   build.mjs           builds lib/client.js (esbuild)

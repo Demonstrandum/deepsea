@@ -17,7 +17,7 @@ import { DsdError } from '../lib/util.mjs'
 const HELP = `dsd — DeepSea developer CLI (tools/dsd/README.md)
 
   dsd run <variant> --throwaway-app | --throwaway-server [--visible] [--detach] [--scripted] [--plugins <names|all>]
-          [--app <checkout|ref>] [--source <ref>] [--harness <ref>] [--ttl <min>] [--keep]
+          [--app <checkout|ref>] [--patch <file>,…] [--source <ref>] [--harness <ref>] [--ttl <min>] [--keep]
   dsd stop [<variant>] [--keep]
   dsd list [--builds] [--json]
   dsd gc [--builds] [--dry-run]
