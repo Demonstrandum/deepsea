@@ -1,7 +1,7 @@
 /**
  * dsd stop | list | gc | builds | link
  */
-import { existsSync, lstatSync, readdirSync, readlinkSync, rmSync } from 'node:fs'
+import { existsSync, lstatSync, readdirSync, readlinkSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { buildPaths, buildReady, buildRecord, ensureBuild, harnessRepo, linkHarness, readLock, resolveHarnessCommit } from '../lib/harness.mjs'
 import { buildsDir, REPO } from '../lib/paths.mjs'
@@ -123,6 +123,16 @@ export async function gc(argv) {
       rmSync(join(buildsDir(), f), { force: true })
     }
     if (!dry) git(repo, ['worktree', 'prune'])
+    // App compiles and extracted app sources: rebuilt on demand in seconds, so any not used in
+    // the last hour (and not an unfinished build beside them) can go.
+    const hour = Date.now() - 60 * 60_000
+    for (const f of existsSync(buildsDir()) ? readdirSync(buildsDir()) : []) {
+      if (!/^macos-(?:src-)?[0-9a-f]{12}$/.test(f)) continue
+      const dir = join(buildsDir(), f)
+      if (statSync(dir).atimeMs > hour || statSync(dir).mtimeMs > hour) continue
+      result.builds.push(f)
+      if (!dry) rmSync(dir, { recursive: true, force: true })
+    }
   }
   printJson({ ...result, dryRun: dry })
 }

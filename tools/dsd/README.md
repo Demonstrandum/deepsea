@@ -110,7 +110,7 @@ taken over. Build logs: `~/Library/Logs/io.github.taliesinb.deepsea/builds/`.
 | `dsd stop [<ref>] [--keep]` | stop it; a throwaway's home, logs and macOS leftovers are removed unless `--keep` |
 | `dsd list [--builds]` | variants, what is running, ports, ids; with `--builds`, the builds and what uses each |
 | `dsd logs <ref> [app \| relay \| server \| plugin <name>] [--follow]` | the current run's log |
-| `dsd gc [--builds] [--dry-run]` | remove throwaways: the caller's own once stopped, another agent's once stopped for an hour, any past its time limit (with macOS leftovers); with `--builds`, also builds nothing uses |
+| `dsd gc [--builds] [--dry-run]` | remove throwaways: the caller's own once stopped, another agent's once stopped for an hour, any past its time limit (with macOS leftovers); with `--builds`, also harness builds nothing uses and app compiles not used for an hour |
 | `dsd builds [list \| make [<harness ref>]]` | list builds, or make one (default: the pinned commit) |
 | `dsd link` | point this checkout's `harness` at the build of its pinned commit, building it if needed |
 | `dsd drive [-v <ref>] <op> …` | one operation on a running throwaway, as JSON (below) |
