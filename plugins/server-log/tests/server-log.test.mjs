@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { Config, render, timestamp } from '../index.js'
+import { Config, passes, render, timestamp } from '../index.js'
 
 const exporter = { colors: false }
 const message = (type, args, name = 'deepsea-billing') => ({ sn: 1, ts: Date.parse('2026-10-09T20:13:24.115Z'), type, level: 1, name, args })
@@ -26,4 +26,10 @@ test('config: a level, nothing else', () => {
   assert.deepEqual(v({ level: 'warn' }), { value: { level: 'warn' } })
   assert.ok(v({ level: 'loud' }).issues)
   assert.ok(v({ file: '/x' }).issues)
+})
+
+test('levels in the usual order: warn keeps errors and warnings, drops info and debug', () => {
+  assert.deepEqual(['error', 'warn', 'info', 'debug'].map(t => passes(t, 'warn')), [true, true, false, false])
+  assert.deepEqual(['error', 'warn', 'info', 'debug'].map(t => passes(t, 'debug')), [true, true, true, true])
+  assert.deepEqual(['error', 'warn', 'info', 'debug'].map(t => passes(t, 'error')), [true, false, false, false])
 })

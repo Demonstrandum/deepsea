@@ -10,11 +10,13 @@ import { Logger } from '@deepseek-ai/cordis'
 
 export const name = 'deepsea-server-log'
 
-const LEVELS = { error: 0, info: 1, warn: 2, debug: 3 }
+/** Severity in the usual order; `level` keeps a message when its rank is at most the level's. (Cordis
+ * numbers its levels error 0, info 1, warn 2, debug 3, so its own thresholds cannot drop info but keep warn.) */
+const RANK = { error: 0, warn: 1, info: 2, debug: 3 }
 
 export const Config = { '~standard': { version: 1, vendor: 'deepsea-server-log', validate(input = {}) {
   if (input === null || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(k => k !== 'level')) return { issues: [{ message: 'config takes only "level"' }] }
-  if (input.level !== undefined && !Object.hasOwn(LEVELS, input.level)) return { issues: [{ message: `level is one of ${Object.keys(LEVELS).join(', ')}` }] }
+  if (input.level !== undefined && !Object.hasOwn(RANK, input.level)) return { issues: [{ message: `level is one of ${Object.keys(RANK).join(', ')}` }] }
   return { value: { level: input.level ?? 'debug' } }
 } } }
 
@@ -33,11 +35,18 @@ export function render(message, exporter) {
   return Logger.format(exporter, message).split('\n').map(line => `${head}  ${line}`).join('\n')
 }
 
+/** Whether a message of `type` passes `level` (error < warn < info < debug). */
+export function passes(type, level = 'debug') {
+  return (RANK[type] ?? RANK.debug) <= RANK[level]
+}
+
 export function apply(ctx, config = { level: 'debug' }) {
+  const level = config.level ?? 'debug'
   const exporter = {
     colors: false,
-    levels: { default: LEVELS[config.level ?? 'debug'] },
+    levels: { default: 3 },
     export(message) {
+      if (!passes(message.type, level)) return
       try { process.stderr.write(`${render(message, exporter)}\n`) } catch { /* a closed stderr must not break logging */ }
     },
   }
