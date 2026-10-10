@@ -10,6 +10,7 @@ import { join } from 'node:path'
 import { installHook } from './check.mjs'
 import { linkHarness } from '../lib/harness.mjs'
 import { mainCheckout, worktreesDir } from '../lib/paths.mjs'
+import { isBuild } from '../lib/source.mjs'
 import { DsdError, git, note, onlyFlags, parseArgs, printJson, usage } from '../lib/util.mjs'
 
 const TOPIC = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
@@ -31,7 +32,8 @@ export function worktrees() {
   for (const w of out) {
     try { const link = join(w.path, 'harness'); if (lstatSync(link).isSymbolicLink()) w.harness = readlinkSync(link) } catch { /* none */ }
   }
-  return out
+  // Builds of commits (_builds/deepsea-*) are worktrees too, but no one works in them.
+  return out.filter(w => !isBuild(w.path))
 }
 
 async function add(args) {

@@ -8,7 +8,9 @@
  * --throwaway-app also builds the app (lib/app.mjs) and opens it on the
  * server: hidden and focus-free unless --visible, with its automation socket.
  * Prints the facts as JSON. `--plugins` loads this checkout's plugins in
- * place (lib/plugins.mjs); `--scripted` adds the scripted model and makes it
+ * place (lib/plugins.mjs), or with `--source <ref>` those of an immutable
+ * build of that commit (lib/source.mjs), which also gives the harness pin
+ * and the app; `--scripted` adds the scripted model and makes it
  * the default model; `--patch` adds patch files of the caller's own after
  * the plugins' (config overrides, fixture rows).
  *
@@ -24,6 +26,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync
 import { spawn } from 'node:child_process'
 import { join, resolve } from 'node:path'
 import { appSocketOf, appSource, buildThrowawayApp, launchApp, waitAppReady } from '../lib/app.mjs'
+import { ensureSourceBuild, resolveSourceCommit } from '../lib/source.mjs'
 import { buildPaths, ensureBuild, harnessRepo, linkHarness, readLock, resolveHarnessCommit } from '../lib/harness.mjs'
 import { openRunLog } from '../lib/logs.mjs'
 import { preparePlugin, selectPlugins, writePluginPatches } from '../lib/plugins.mjs'
@@ -31,7 +34,7 @@ import { homeOf, logDirOf, REPO, variantName } from '../lib/paths.mjs'
 import { alive, freePort } from '../lib/processes.mjs'
 import { removeVariant } from '../lib/remove.mjs'
 import { DsdError, isoLocal, note, onlyFlags, parseArgs, printJson, sleep, usage } from '../lib/util.mjs'
-import { checkNamedId, currentOwner, displayName, readVariant, writeState, writeVariant } from '../lib/variants.mjs'
+import { checkNamedId, currentOwner, displayName, writeState, writeVariant } from '../lib/variants.mjs'
 
 /** The server's entry; with the port, the signature dsd checks before signalling. */
 const SERVER_ENTRY = 'apps/cli/src/bin.ts'
@@ -78,18 +81,18 @@ function welcomeNoticeVersion(build) {
 }
 
 /** Create the throwaway's home: configuration, profile patch, settings, links. */
-function makeHome(id, { parent, commit, build, expires, scripted, mode }) {
+function makeHome(id, { parent, commit, build, expires, scripted, mode, source }) {
   const home = homeOf(id)
   mkdirSync(join(home, 'profiles', 'web'), { recursive: true, mode: 0o700 })
   const owner = currentOwner()
-  writeVariant(id, { id, parent, throwaway: true, mode, harness: commit, created: isoLocal(),
+  writeVariant(id, { id, parent, throwaway: true, mode, harness: commit, ...(source ? { source: `${source.ref} (${source.commit.slice(0, 10)})` } : {}), created: isoLocal(),
     ownerSession: owner.session, ownerCheckout: owner.checkout, expires })
   writeFileSync(join(home, 'profiles', 'web', 'cordis.patch.yml'), profilePatch(home) + (scripted ? SCRIPTED_PATCH : ''), { mode: 0o600 })
   const notice = welcomeNoticeVersion(build)
   if (notice) writeFileSync(join(home, 'settings.yaml'), `ui-onboarding:\n  welcomeNoticeVersion: '${notice}'\n`, { mode: 0o600 })
   mkdirSync(logDirOf(id), { recursive: true, mode: 0o700 })
   symlinkSync(logDirOf(id), join(home, 'logs'))
-  symlinkSync(build, join(home, 'source'))
+  symlinkSync(source?.dir ?? build, join(home, 'source'))
   return home
 }
 
@@ -135,22 +138,25 @@ export async function run(argv) {
   if (mode === 'server' && (args.visible || args.app)) usage('--visible and --app are for --throwaway-app')
   const timeoutMs = Number(args.timeout ?? 180) * 1000
 
-  // Which harness: --harness, else the pin of --source (a commit of this repository), else the
-  // parent's recorded source, else this checkout's pin.
-  const parentConfig = readVariant(parent)
-  const sourceRef = args.source ?? parentConfig?.source
-  const lock = readLock(sourceRef)
+  // Which code: with --source, an immutable build of that commit of this repository (its plugins,
+  // its harness pin, its app); otherwise this checkout in place. Which harness: --harness, else the
+  // pin of the source, else this checkout's pin.
+  if (typeof args.source === 'string' && args.app) usage('--source gives the app too; --app is for running this checkout')
+  const source = typeof args.source === 'string' ? { ref: args.source, commit: resolveSourceCommit(args.source) } : undefined
+  if (source) source.dir = await ensureSourceBuild(source.commit)
+  const lock = readLock(undefined, source?.dir)
   const repo = harnessRepo(lock)
   const commit = resolveHarnessCommit(args.harness ?? lock.commit, repo)
-  const app = mode === 'app' ? appSource(typeof args.app === 'string' ? args.app : undefined) : undefined
+  const app = mode === 'app' ? appSource(source ? source.dir : typeof args.app === 'string' ? args.app : undefined) : undefined
   const build = await ensureBuild(commit, repo)
-  const plugins = selectPlugins(args.plugins)
+  const plugins = selectPlugins(args.plugins, source?.dir)
   // Every throwaway gets the test driver (dsd drive; it arms only in a throwaway home) and the
   // server log (plugin log messages into the server's log).
   for (const always of ['test-driver', 'server-log', ...(args.scripted ? ['scripted-model'] : [])]) {
-    if (!plugins.some(p => p.name === always)) plugins.push(...selectPlugins(always))
+    if (!plugins.some(p => p.name === always)) plugins.push(...selectPlugins(always, source?.dir))
   }
-  if (plugins.length > 0) {
+  // A build's plugins are installed and built already; this checkout's are prepared on demand.
+  if (plugins.length > 0 && !source) {
     await linkHarness()
     for (const plugin of plugins) preparePlugin(plugin)
   }
@@ -161,7 +167,7 @@ export async function run(argv) {
   if (ttl !== undefined && !(ttl > 0)) usage('--ttl takes a number of minutes')
   const expires = ttl === undefined ? undefined : isoLocal(new Date(Date.now() + ttl * 60_000))
   const id = newThrowawayId(parent)
-  const home = makeHome(id, { parent, commit, build, expires, scripted: Boolean(args.scripted), mode })
+  const home = makeHome(id, { parent, commit, build, expires, scripted: Boolean(args.scripted), mode, source })
   const cleanup = async () => removeVariant(id, { keep: Boolean(args.keep) })
   let bundle
   if (app) {
@@ -180,7 +186,7 @@ export async function run(argv) {
   log.rename(child.pid)
   log.close()
   const signature = [SERVER_ENTRY, `--no-open --port ${port}`]
-  const facts = { pid: child.pid, signature, port, log: log.path, started: isoLocal(), harness: commit, build }
+  const facts = { pid: child.pid, signature, port, log: log.path, started: isoLocal(), harness: commit, build, ...(source ? { source: source.dir } : {}) }
   writeState(id, facts)
 
   let ready
@@ -228,7 +234,7 @@ export async function run(argv) {
   printJson({
     id, name: variantName(id), display: displayName(id), home, mode,
     url: ready.url, login, token: ready.token,
-    pid: child.pid, port, log: log.path, harness: commit.slice(0, 10), plugins: plugins.map(p => p.name), detached: Boolean(args.detach), expires,
+    pid: child.pid, port, log: log.path, harness: commit.slice(0, 10), ...(source ? { source: `${source.ref} (${source.commit.slice(0, 10)})` } : {}), plugins: plugins.map(p => p.name), detached: Boolean(args.detach), expires,
     ...(bundle ? { app: { path: bundle.app, pid: appChild.pid, socket: appSocketOf(id), log: hello.log, visible: Boolean(args.visible), source: app.describe } } : {}),
   })
 

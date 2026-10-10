@@ -4,7 +4,7 @@
 import { existsSync, lstatSync, readdirSync, readlinkSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { buildPaths, buildReady, buildRecord, ensureBuild, harnessRepo, linkHarness, readLock, resolveHarnessCommit } from '../lib/harness.mjs'
-import { buildsDir, REPO } from '../lib/paths.mjs'
+import { buildsDir, mainCheckout, REPO } from '../lib/paths.mjs'
 import { runningAs } from '../lib/processes.mjs'
 import { removeVariant } from '../lib/remove.mjs'
 import { git, onlyFlags, parseArgs, printJson, usage } from '../lib/util.mjs'
@@ -52,15 +52,15 @@ function builds() {
   const dir = buildsDir()
   if (!existsSync(dir)) return []
   const users = buildUsers()
-  return readdirSync(dir).filter(f => /^harness-[0-9a-f]{12}\.json$/.test(f)).map((f) => {
-    const short = f.slice('harness-'.length, -'.json'.length)
-    const record = buildRecord(short) ?? {}
+  return readdirSync(dir).map(f => /^(harness|deepsea)-([0-9a-f]{12})\.json$/.exec(f)).filter(Boolean).map(([, kind, short]) => {
+    const record = buildRecord(short, kind) ?? {}
     const commit = record.commit ?? short
     return {
+      kind,
       commit: commit.slice(0, 10),
       status: record.status ?? 'unknown',
       seconds: record.seconds,
-      users: (users.get(buildPaths(commit).dir) ?? []).join(',') || undefined,
+      users: (users.get(buildPaths(commit, kind).dir) ?? []).join(',') || undefined,
     }
   })
 }
@@ -75,6 +75,7 @@ function buildUsers() {
   for (const v of listVariants()) {
     if (v.state?.build) add(v.state.build, v.id)
     else if (v.config?.harness) add(buildPaths(v.config.harness).dir, v.id)
+    if (v.state?.source) add(v.state.source, v.id)
   }
   const checkouts = git(REPO, ['worktree', 'list', '--porcelain']).split('\n').filter(l => l.startsWith('worktree ')).map(l => l.slice(9))
   for (const checkout of checkouts) {
@@ -117,19 +118,21 @@ export async function gc(argv) {
     if (!dry) await removeVariant(v.id)
   }
   if (args.builds) {
-    const users = buildUsers()
-    const repo = harnessRepo()
-    for (const f of existsSync(buildsDir()) ? readdirSync(buildsDir()) : []) {
-      const m = /^(harness-[0-9a-f]{12})\.json$/.exec(f)
-      if (!m) continue
-      const dir = join(buildsDir(), m[1])
-      if (users.has(dir) || existsSync(`${dir}.lock`)) continue
-      result.builds.push(m[1])
-      if (dry) continue
-      if (existsSync(dir)) git(repo, ['worktree', 'remove', '--force', dir])
-      rmSync(join(buildsDir(), f), { force: true })
+    // Builds of this repository first: each links a harness build, which stays in use until it goes.
+    for (const [kind, repo] of [['deepsea', mainCheckout()], ['harness', harnessRepo()]]) {
+      const users = buildUsers()
+      for (const f of existsSync(buildsDir()) ? readdirSync(buildsDir()) : []) {
+        const m = new RegExp(`^(${kind}-[0-9a-f]{12})\\.json$`).exec(f)
+        if (!m) continue
+        const dir = join(buildsDir(), m[1])
+        if (users.has(dir) || existsSync(`${dir}.lock`)) continue
+        result.builds.push(m[1])
+        if (dry) continue
+        if (existsSync(dir)) git(repo, ['worktree', 'remove', '--force', dir])
+        rmSync(join(buildsDir(), f), { force: true })
+      }
+      if (!dry) git(repo, ['worktree', 'prune'])
     }
-    if (!dry) git(repo, ['worktree', 'prune'])
     // App compiles and extracted app sources: rebuilt on demand in seconds, so any not used in
     // the last hour (and not an unfinished build beside them) can go.
     const hour = Date.now() - 60 * 60_000

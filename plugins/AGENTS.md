@@ -131,3 +131,6 @@ copies identical.
   with `dsd drive` (wait-page, click, type, eval, describe, snapshot) or a
   `dsd script` (tools/dsd/README.md), so what you check is what the person
   sees.
+- Before calling a topic done, check it beside the others: `dsd topics
+  check` (conflicts) and, after `dsd topics integrate`, a throwaway from
+  `--source integration/base --plugins all`.

@@ -61,11 +61,13 @@ Both this repository and the harness fork are kept as **topic branches**:
   (`"deepsea": { "requires": ["billing-metadata"] }`), so starting a topic
   edits no shared file. `dsd topics` lists both, with what each requires and
   how far it is behind its parent.
-- `dsd topics` will also check every pair of topics for conflicts without
-  touching a working tree, rebuild the integration branch
-  `integration/<harness base>` by merging the topics in order, and
-  regenerate generated files (lockfiles, notices, translation records)
-  once, at integration (not built yet).
+- `dsd topics check` merges every pair of topics and each repository's
+  whole integration in memory, without touching a working tree, and reports
+  conflicts. `dsd topics integrate` rebuilds the integration branches,
+  `integration/<harness base>` in the harness and `integration/base` here,
+  by merging the topics in order; `dsd run <v> --source integration/base`
+  runs everything together. Regenerating generated files (lockfiles,
+  notices, translation records) at integration is not built yet.
 - **Only `topic/base` touches shared files and the harness pin.** Plugin
   topics add their own directories; registries that list plugins or recipes
   are derived by scanning, not edited by hand, so topics do not conflict.

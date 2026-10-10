@@ -1,9 +1,10 @@
 # dsd — the DeepSea developer CLI
 
-**Status: stages 1 and 2 implemented** (shared harness builds, `link`,
-throwaway servers and apps, `stop`, `list`, `gc`, `drive`, `script`,
-`worktree`, `topics list`, `check`); everything else below is design. See
-"Implementation order".
+**Status: stages 1 and 2 implemented, and part of 4** (shared harness
+builds, `link`, throwaway servers and apps, `stop`, `list`, `gc`, `drive`,
+`script`, `worktree`, `topics list | check | integrate`, builds of this
+repository's commits for `run --source`, `check`); everything else below is
+design. See "Implementation order".
 
 `dsd` builds, runs, inspects and drives DeepSea variants (LAYOUT.md §1), and
 runs the topic-branch workflow. It is a command-line program for developers
@@ -42,11 +43,13 @@ configuration with a fresh id `<parent>-<hex>` and an empty home. They take
 free ports, have no Serve path, no LaunchAgent and no LaunchServices
 registration, and their app uses a non-persistent WebKit store, so removing
 the home and the temporary build directory removes everything. A throwaway
-runs the shared build of the pinned harness commit (`--source <ref>` takes the
-pin from a commit of this repository, `--harness <ref>` names a harness
-commit) and loads plugins in place from the checkout dsd runs in, so a topic
-worktree's dsd tests that worktree's plugins as they are, and a rebuilt
-client bundle hot-swaps into the open page. `--plugins <names|all>` selects
+runs the shared build of the pinned harness commit (`--harness <ref>` names
+another harness commit) and loads plugins in place from the checkout dsd
+runs in, so a topic worktree's dsd tests that worktree's plugins as they are,
+and a rebuilt client bundle hot-swaps into the open page. `--source <ref>`
+runs a commit of this repository instead, as an immutable build (below): its
+plugins, its harness pin and its app; `--source integration/base` runs every
+topic together (`dsd topics integrate`). `--plugins <names|all>` selects
 them: each plugin's own bundle patch, its package name replaced by the
 absolute path of its entry module, is passed to the server; a plugin never
 installed or built is installed and built first. `all` leaves machine-wide
@@ -89,7 +92,11 @@ directory.
 ## Builds
 
 Variants run immutable builds, one per commit, in `~/.deepsea/_builds/`
-(LAYOUT.md §2): `harness-<commit>/` and `deepsea-<commit>/`. `dsd` makes a
+(LAYOUT.md §2): `harness-<commit>/` and `deepsea-<commit>/`. A deepsea build
+is a detached worktree of this repository at the commit, its `harness` link
+to the build of the pin it carries, and every plugin installed (`pnpm install
+--frozen-lockfile`) with its browser half built: seconds, once the harness
+build exists. `dsd` makes a
 build once, under a lock, and never rebuilds one in place; moving a variant
 to a new commit is a stop and a start. A checkout's `harness` link points at
 the build of the commit its `harness.lock` pins (`dsd link`), so plugin
@@ -117,16 +124,18 @@ taken over. Build logs: `~/Library/Logs/io.github.taliesinb.deepsea/builds/`.
 |---|---|
 | `dsd new <v> [--from <v>] [--color <hex>] [--source <ref>]` | create a named variant: home, `variant.yml`, port block, and the home's `logs` / `support` / `source` links (LAYOUT.md §4) |
 | `dsd build <v> [--install \| --throwaway]` | make sure the builds of its source exist, then build its apps (client, server host, relay) from `apps/macos`; `--install` installs them (LAYOUT.md §6); `--throwaway` builds the apps into a temporary directory |
-| `dsd run <v> [--throwaway \| --throwaway-app \| --throwaway-server] [--visible] [--detach] [--scripted] [--plugins <names\|all>] [--patch <file>,…] [--app <checkout \| ref>] [--source <ref>] [--harness <ref>] [--ttl <min>] [--keep]` | start it, building first if needed (a throwaway always gets plugins/test-driver and plugins/server-log); prints id, home, URL, login URL (with token), pids, log, app path, automation socket. `--source` takes the harness pin from a commit of this repository; `--harness` names a harness commit directly |
+| `dsd run <v> [--throwaway \| --throwaway-app \| --throwaway-server] [--visible] [--detach] [--scripted] [--plugins <names\|all>] [--patch <file>,…] [--app <checkout \| ref>] [--source <ref>] [--harness <ref>] [--ttl <min>] [--keep]` | start it, building first if needed (a throwaway always gets plugins/test-driver and plugins/server-log); prints id, home, URL, login URL (with token), pids, log, app path, automation socket. `--source <ref>` runs a build of that commit of this repository (plugins, harness pin, app); `--harness` names a harness commit directly |
 | `dsd stop [<ref>] [--keep]` | stop it; a throwaway's home, logs and macOS leftovers are removed unless `--keep` |
 | `dsd list [--builds]` | variants, what is running, ports, ids; with `--builds`, the builds and what uses each |
 | `dsd logs <ref> [app \| relay \| server \| plugin <name>] [--follow]` | the current run's log |
 | `dsd gc [--builds] [--dry-run]` | remove throwaways: the caller's own once stopped, another agent's once stopped for an hour, any past its time limit (with macOS leftovers); with `--builds`, also harness builds nothing uses and app compiles not used for an hour |
-| `dsd builds [list \| make [<harness ref>]]` | list builds, or make one (default: the pinned commit) |
+| `dsd builds [list \| make [<harness ref>]]` | list builds (harness and deepsea), or make a harness build (default: the pinned commit) |
 | `dsd link` | point this checkout's `harness` at the build of its pinned commit, building it if needed |
 | `dsd drive [-v <ref>] <op> …` | one operation on a running throwaway, as JSON (below) |
 | `dsd script <file.mjs> [-v <ref>]` | run a script: its default export gets `{ id, url, login, server(op, body), app(op, body), sleep }` and its return value is printed |
-| `dsd topics [list]` | both repositories' topics: parents, commits, what each requires, how far behind; `check`, `integrate`, `rebase` not built yet |
+| `dsd topics [list]` | both repositories' topics: parents, commits, what each requires, how far behind |
+| `dsd topics check` | merge in memory (no working tree touched): every pair of topics of each repository and each full integration; reports conflicts, missing harness topics, topic worktrees with uncommitted work (integrated as committed) |
+| `dsd topics integrate [--dry-run]` | build `integration/<harness base>` in the harness repository (topics.txt order) and `integration/base` here (topic/base, then every topic by name), one `Merge <topic>` commit each; moved only when every merge succeeds; a merge whose parents are unchanged keeps its commit, so an unchanged integration keeps its ids and its pin. A checked-out integration branch moves with its worktree (refused with uncommitted changes). Reports when the harness integration differs from the pin (pin it on topic/base to run it) |
 | `dsd worktree add <topic> [--from <ref>] \| list \| remove <topic>` | a topic's worktree in `<repo>-worktrees/<topic>/`: branch `topic/<topic>` (from `topic/base`), `harness` link, pre-commit check; `remove` refuses uncommitted changes and keeps the branch |
 | `dsd check [--staged \| <rev range>] [--install-hook]` | scan added lines for local paths, private addresses, tailnet names, email addresses and `private/check-patterns.txt`; the pre-commit hook runs `--staged` |
 
@@ -234,4 +243,5 @@ fail with "has no app".
    app operations of `drive`, `script` (done); the page helpers (test-driver
    browser half) when a topic needs them.
 3. Named variants: `new`, `build --install`, `run`.
-4. `topics check | integrate | rebase`, `exec` (commands in a build with a throwaway home).
+4. `topics check | integrate` and `run --source` from deepsea builds (done);
+   `topics rebase`, `exec` (commands in a build with a throwaway home).

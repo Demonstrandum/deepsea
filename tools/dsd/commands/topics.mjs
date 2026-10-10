@@ -1,17 +1,26 @@
 /**
- * dsd topics [list] [--json]
+ * dsd topics [list] [--json] | check | integrate [--dry-run]
  *
  * The topics of both repositories. Harness topics and their order come from
  * the [harness] section of topics.txt. This repository's topics are its
  * `topic/*` branches (other than topic/base); each declares the harness
  * topics it needs in its plugins' package.json (`"deepsea": { "requires":
  * [...] }`), so registering a topic edits no shared file.
+ *
+ * `check` merges in memory (lib/integrate.mjs): every pair of topics of each
+ * repository, and each repository's full integration, reporting conflicts
+ * and missing requirements. `integrate` builds the integration branches,
+ * `integration/<harness base>` in the harness repository and
+ * `integration/base` here (topic/base, then every topic in name order), and
+ * moves them only when every merge succeeded. Run a throwaway on the result
+ * with `dsd run <v> --source integration/base`.
  */
-import { readFileSync } from 'node:fs'
+import { readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { harnessRepo, readLock } from '../lib/harness.mjs'
-import { mainCheckout } from '../lib/paths.mjs'
-import { git, onlyFlags, parseArgs, printJson, usage } from '../lib/util.mjs'
+import { harnessRepo, readLock, takeLock } from '../lib/harness.mjs'
+import { checkedOutAt, mergeTrees, moveBranch, planIntegration } from '../lib/integrate.mjs'
+import { buildsDir, mainCheckout, worktreesDir } from '../lib/paths.mjs'
+import { DsdError, git, note, onlyFlags, parseArgs, printJson, usage } from '../lib/util.mjs'
 
 /** Parse topics.txt: per section, its base and its `topic <branch> [<parent>]` lines. */
 export function parseTopics(text) {
@@ -64,11 +73,86 @@ function deepseaTopics(section, harnessNames) {
   })
 }
 
+/** The branch an integration of this repository's topics is built on. */
+export const DEEPSEA_INTEGRATION = 'integration/base'
+
+/** Both repositories' integration inputs: repository, base, branch, topics in order. */
+function integrations(sections, deepseaRows) {
+  const harness = sections.harness
+  return [
+    { repo: 'harness', path: harnessRepo(readLock()), base: harness.base, branch: `integration/${harness.base}`, topics: harness.topics.map(t => t.name) },
+    { repo: 'deepsea', path: mainCheckout(), base: sections.deepsea?.base ?? 'topic/base', branch: DEEPSEA_INTEGRATION, topics: deepseaRows.map(r => `topic/${r.topic}`).sort() },
+  ]
+}
+
+/** Every pair of a repository's topics that conflicts when merged. */
+function pairConflicts(path, topics) {
+  const found = []
+  for (let i = 0; i < topics.length; i++) {
+    for (let j = i + 1; j < topics.length; j++) {
+      const merged = mergeTrees(path, `refs/heads/${topics[i]}`, `refs/heads/${topics[j]}`)
+      if (merged.conflicts) found.push({ topics: [short(topics[i]), short(topics[j])], files: merged.conflicts })
+    }
+  }
+  return found
+}
+
+/** Topic worktrees with uncommitted changes (they are integrated as committed). */
+function dirtyWorktrees(topicNames) {
+  const dirty = []
+  for (const name of topicNames) {
+    const path = join(worktreesDir(), name)
+    try { if (git(path, ['status', '--porcelain'])) dirty.push(name) } catch { /* no worktree */ }
+  }
+  return dirty
+}
+
+async function integrateOrCheck(sections, deepseaRows, { move, dry }) {
+  const missing = deepseaRows.filter(r => r.missing.length).map(r => `${r.topic} requires ${r.missing.join(', ')}`)
+  const report = { missing, dirty: dirtyWorktrees(deepseaRows.map(r => r.topic)), repos: [] }
+  for (const integration of integrations(sections, deepseaRows)) {
+    const plan = planIntegration(integration.path, integration.base, integration.topics, integration.branch)
+    let current
+    try { current = git(integration.path, ['rev-parse', '--verify', `refs/heads/${integration.branch}`]) } catch { /* none yet */ }
+    report.repos.push({
+      repo: integration.repo, branch: integration.branch, base: integration.base,
+      tip: plan.conflict ? undefined : plan.tip, current, changed: !plan.conflict && plan.tip !== current,
+      merged: plan.steps.map(s => short(s.topic) + (s.skipped ? ` (${s.skipped})` : s.reused ? '' : ' (new merge)')),
+      conflict: plan.conflict ? { topic: short(plan.conflict.topic), files: plan.conflict.files } : undefined,
+      pairs: move ? undefined : pairConflicts(integration.path, integration.topics),
+    })
+  }
+  const pinned = readLock().commit
+  const harness = report.repos.find(r => r.repo === 'harness')
+  if (harness.tip && harness.tip !== pinned) report.pin = { pinned: pinned.slice(0, 10), integration: harness.tip.slice(0, 10), note: 'harness.lock pins another commit: pin the integration on topic/base to run it' }
+  const failed = missing.length > 0 || report.repos.some(r => r.conflict)
+  if (move && !failed && !dry) {
+    for (const r of report.repos) {
+      const path = r.repo === 'harness' ? harnessRepo(readLock()) : mainCheckout()
+      if (r.changed) { moveBranch(path, r.branch, r.tip); note(`${r.repo}: ${r.branch} -> ${r.tip.slice(0, 10)}${checkedOutAt(path, r.branch) ? ' (checked out; moved with reset --keep)' : ''}`) }
+      else note(`${r.repo}: ${r.branch} unchanged at ${r.tip.slice(0, 10)}`)
+    }
+  }
+  for (const r of report.repos) { r.tip = r.tip?.slice(0, 10); r.current = r.current?.slice(0, 10) }
+  printJson({ ...report, ok: !failed, ...(move ? { moved: !failed && !dry } : {}) })
+  if (failed) throw new DsdError(missing.length ? `missing harness topics: ${missing.join('; ')}` : `conflict: ${report.repos.filter(r => r.conflict).map(r => `${r.repo} ${r.conflict.topic} (${r.conflict.files.join(', ')})`).join('; ')}`)
+}
+
 export async function topics(argv) {
   const args = parseArgs(argv)
-  onlyFlags(args, ['json'])
-  if (args._.length > 1 || (args._[0] && args._[0] !== 'list')) usage('dsd topics [list] [--json]  (integrate and rebase: not built yet)')
+  onlyFlags(args, ['json', 'dry-run'])
+  const sub = args._[0] ?? 'list'
+  if (args._.length > 1 || !['list', 'check', 'integrate'].includes(sub)) usage('dsd topics [list] [--json] | check | integrate [--dry-run]  (rebase: not built yet)')
   const sections = parseTopics(readFileSync(join(mainCheckout(), 'topics.txt'), 'utf8'))
+  if (sub === 'check' || sub === 'integrate') {
+    const harnessNames = new Set(harnessTopics(sections.harness, harnessRepo(readLock())).map(t => t.topic))
+    const rows = deepseaTopics(sections.deepsea, harnessNames)
+    if (sub === 'check') return integrateOrCheck(sections, rows, { move: false })
+    const lock = join(buildsDir(), 'integrate.lock')
+    const { held } = takeLock(lock)
+    if (held !== undefined) throw new DsdError(`another dsd (pid ${held}) is integrating; try again when it is done`)
+    try { return await integrateOrCheck(sections, rows, { move: true, dry: Boolean(args['dry-run']) }) } finally { rmSync(lock, { recursive: true, force: true }) }
+  }
   const harness = sections.harness ? harnessTopics(sections.harness, harnessRepo(readLock())) : []
   const deepsea = deepseaTopics(sections.deepsea, new Set(harness.map(t => t.topic)))
   const rows = [...harness, ...deepsea]

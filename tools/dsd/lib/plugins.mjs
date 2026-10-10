@@ -1,7 +1,8 @@
 /**
- * Loading this checkout's plugins into a throwaway, in place: each plugin's
- * own bundle patch (cordis.patch.yml) with its package name replaced by the
- * absolute path of its entry module, passed to the server as a `--patch`.
+ * Loading plugins into a throwaway in place, from this checkout or a build
+ * of a commit (lib/source.mjs): each plugin's own bundle patch
+ * (cordis.patch.yml) with its package name replaced by the absolute path of
+ * its entry module, passed to the server as a `--patch`.
  */
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
@@ -9,13 +10,13 @@ import { join } from 'node:path'
 import { REPO } from './paths.mjs'
 import { DsdError, note, usage } from './util.mjs'
 
-const pluginsDir = () => join(REPO, 'plugins')
+const pluginsDir = (root = REPO) => join(root, 'plugins')
 
 /** A plugin directory's package facts. */
-function describe(name) {
-  const dir = join(pluginsDir(), name)
+function describe(name, root = REPO) {
+  const dir = join(pluginsDir(root), name)
   const file = join(dir, 'package.json')
-  if (!existsSync(file)) usage(`no plugin "${name}" in ${pluginsDir()}`)
+  if (!existsSync(file)) usage(`no plugin "${name}" in ${pluginsDir(root)}`)
   const pkg = JSON.parse(readFileSync(file, 'utf8'))
   return {
     name, dir, pkg,
@@ -25,11 +26,11 @@ function describe(name) {
   }
 }
 
-/** Every plugin directory of this checkout. */
-export function allPlugins() {
-  if (!existsSync(pluginsDir())) return []
-  return readdirSync(pluginsDir(), { withFileTypes: true })
-    .filter(entry => entry.isDirectory() && existsSync(join(pluginsDir(), entry.name, 'package.json')))
+/** Every plugin directory of a checkout (default: this one). */
+export function allPlugins(root = REPO) {
+  if (!existsSync(pluginsDir(root))) return []
+  return readdirSync(pluginsDir(root), { withFileTypes: true })
+    .filter(entry => entry.isDirectory() && existsSync(join(pluginsDir(root), entry.name, 'package.json')))
     .map(entry => entry.name).sort()
 }
 
@@ -37,15 +38,15 @@ export function allPlugins() {
  * The plugins a `--plugins` value selects: names, or `all` (which leaves
  * machine-wide plugins out; naming one includes it).
  */
-export function selectPlugins(value) {
+export function selectPlugins(value, root = REPO) {
   if (value === undefined || value === true) return []
   if (value === 'all') {
-    const picked = allPlugins().map(describe)
+    const picked = allPlugins(root).map(name => describe(name, root))
     const skipped = picked.filter(p => p.machineWide)
     if (skipped.length) note(`leaving out machine-wide plugins (name them to include): ${skipped.map(p => `${p.name} (${p.machineWide})`).join(', ')}`)
     return picked.filter(p => !p.machineWide)
   }
-  return String(value).split(',').map(s => s.trim()).filter(Boolean).map(describe)
+  return String(value).split(',').map(s => s.trim()).filter(Boolean).map(name => describe(name, root))
 }
 
 /** The newest modification time among a plugin's own files (not dependencies, output or tests). */

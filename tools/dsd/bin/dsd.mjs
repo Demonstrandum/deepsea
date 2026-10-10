@@ -17,7 +17,7 @@ import { DsdError } from '../lib/util.mjs'
 const HELP = `dsd — DeepSea developer CLI (tools/dsd/README.md)
 
   dsd run <variant> --throwaway-app | --throwaway-server [--visible] [--detach] [--scripted] [--plugins <names|all>]
-          [--app <checkout|ref>] [--patch <file>,…] [--source <ref>] [--harness <ref>] [--ttl <min>] [--keep]
+          [--app <checkout|ref>] [--patch <file>,…] [--source <ref, e.g. integration/base>] [--harness <ref>] [--ttl <min>] [--keep]
   dsd stop [<variant>] [--keep]
   dsd list [--builds] [--json]
   dsd gc [--builds] [--dry-run]
@@ -27,7 +27,7 @@ const HELP = `dsd — DeepSea developer CLI (tools/dsd/README.md)
                                 app: load reload wait-page eval resize view appearance click type describe snapshot window-info app-log quit
   dsd script <file.mjs> [-v <ref>]
   dsd worktree add <topic> [--from <ref>] | list | remove <topic>
-  dsd topics [list]
+  dsd topics [list] | check | integrate [--dry-run]
   dsd check [--staged | <rev range>] [--install-hook]
 
 A <variant> reference is a full id, a unique part of a throwaway's hex, or

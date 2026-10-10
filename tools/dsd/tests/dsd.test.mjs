@@ -162,3 +162,44 @@ test('app requests: one JSON line out, one in; errors carry the app\'s code', as
     await assert.rejects(appRequest(`${socket}-missing`, 'hello'), /cannot reach the app/)
   } finally { server.close() }
 })
+
+test('integration: merges in order, reuses unchanged merges, stops at a conflict, moves a checked-out branch with its worktree', async () => {
+  const { execFileSync } = await import('node:child_process')
+  const { planIntegration, moveBranch } = await import('../lib/integrate.mjs')
+  const repo = mkdtempSync(join(tmpdir(), 'dsd-integrate-'))
+  const g = (...args) => execFileSync('git', args, { cwd: repo, encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@example.com', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@example.com' } }).trim()
+  try {
+    g('init', '-q', '-b', 'main')
+    writeFileSync(join(repo, 'shared.txt'), 'base\n'); g('add', '.'); g('commit', '-qm', 'base')
+    for (const topic of ['a', 'b']) {
+      g('checkout', '-qb', `topic/${topic}`, 'main')
+      writeFileSync(join(repo, `${topic}.txt`), `${topic}\n`); g('add', '.'); g('commit', '-qm', topic)
+    }
+    g('checkout', '-q', 'main')
+    const first = planIntegration(repo, 'main', ['topic/a', 'topic/b'], 'integration/main')
+    assert.equal(first.conflict, undefined)
+    assert.deepEqual(first.steps.map(s => s.reused), [false, false])
+    assert.equal(g('show', `${first.tip}:b.txt`), 'b')
+    assert.equal(moveBranch(repo, 'integration/main', first.tip), undefined)
+    const again = planIntegration(repo, 'main', ['topic/a', 'topic/b'], 'integration/main')
+    assert.equal(again.tip, first.tip)
+    assert.deepEqual(again.steps.map(s => s.reused), [true, true])
+    // Two topics editing the same line: the plan stops at the second, nothing is moved.
+    for (const topic of ['c', 'd']) {
+      g('checkout', '-qb', `topic/${topic}`, 'main')
+      writeFileSync(join(repo, 'shared.txt'), `${topic}\n`); g('add', '.'); g('commit', '-qm', topic)
+    }
+    g('checkout', '-q', 'main')
+    const clash = planIntegration(repo, 'main', ['topic/c', 'topic/d'], 'integration/main')
+    assert.deepEqual(clash.conflict, { topic: 'topic/d', files: ['shared.txt'] })
+    assert.equal(g('rev-parse', 'integration/main'), first.tip)
+    // A checked-out integration branch moves with its worktree; local changes are refused.
+    g('checkout', '-q', 'integration/main')
+    const next = planIntegration(repo, 'main', ['topic/a', 'topic/b', 'topic/c'], 'integration/main')
+    moveBranch(repo, 'integration/main', next.tip)
+    assert.equal(g('rev-parse', 'HEAD'), next.tip)
+    assert.equal(g('status', '--porcelain'), '')
+    writeFileSync(join(repo, 'a.txt'), 'edited\n')
+    assert.throws(() => moveBranch(repo, 'integration/main', first.tip), /uncommitted changes/)
+  } finally { rmSync(repo, { recursive: true, force: true }) }
+})

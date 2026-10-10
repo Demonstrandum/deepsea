@@ -45,30 +45,30 @@ export function resolveHarnessCommit(ref, repo = harnessRepo()) {
   return git(repo, ['rev-parse', '--verify', `${ref}^{commit}`])
 }
 
-/** Where a commit's build, status record and lock live. */
-export function buildPaths(commit) {
-  const dir = join(buildsDir(), `harness-${commit.slice(0, 12)}`)
+/** Where a commit's build of `kind` (`harness`, `deepsea`), its status record and lock live. */
+export function buildPaths(commit, kind = 'harness') {
+  const dir = join(buildsDir(), `${kind}-${commit.slice(0, 12)}`)
   return { dir, record: `${dir}.json`, lock: `${dir}.lock` }
 }
 
 /** A build's status record, or undefined. */
-export function buildRecord(commit) {
-  const { record } = buildPaths(commit)
+export function buildRecord(commit, kind = 'harness') {
+  const { record } = buildPaths(commit, kind)
   if (!existsSync(record)) return undefined
   try { return JSON.parse(readFileSync(record, 'utf8')) } catch { return undefined }
 }
 
 /** Whether a commit's build is ready to run. */
-export function buildReady(commit) {
-  return buildRecord(commit)?.status === 'ready' && existsSync(buildPaths(commit).dir)
+export function buildReady(commit, kind = 'harness') {
+  return buildRecord(commit, kind)?.status === 'ready' && existsSync(buildPaths(commit, kind).dir)
 }
 
-function writeRecord(commit, record) {
-  writeFileSync(buildPaths(commit).record, `${JSON.stringify({ commit, ...record }, null, 2)}\n`)
+function writeRecord(commit, kind, record) {
+  writeFileSync(buildPaths(commit, kind).record, `${JSON.stringify({ commit, ...record }, null, 2)}\n`)
 }
 
-/** Take the build lock, or report who holds it. */
-function takeLock(lock) {
+/** Take a lock directory, or report who holds it (a lock whose pid is gone is taken over). */
+export function takeLock(lock) {
   try {
     mkdirSync(lock)
   } catch (error) {
@@ -82,7 +82,8 @@ function takeLock(lock) {
   return { held: undefined }
 }
 
-function runStep(label, command, args, cwd, log) {
+/** Run one build step, its output into the build log. */
+export function runStep(label, command, args, cwd, log) {
   return new Promise((resolvePromise, reject) => {
     log.identify(`step ${label}: ${command} ${args.join(' ')}`)
     const env = { ...process.env }
@@ -95,49 +96,63 @@ function runStep(label, command, args, cwd, log) {
 }
 
 /**
- * Make sure `commit` has a ready build, building it if needed (or waiting for
- * another agent's build of it). Returns the build directory.
+ * Make sure `commit` has a ready build of `kind`, running `make(dir, log)` under
+ * the build lock if not (or waiting for another agent's build of it). A build
+ * is made once and never changed; a failed one is retried by the next caller.
+ * Returns the build directory.
  */
-export async function ensureBuild(commit, repo = harnessRepo()) {
-  const { dir, lock } = buildPaths(commit)
+export async function ensureBuilt(kind, commit, make) {
+  const { dir, lock } = buildPaths(commit, kind)
   mkdirSync(buildsDir(), { recursive: true })
   let waited = false
   for (;;) {
-    if (buildReady(commit)) return dir
+    if (buildReady(commit, kind)) return dir
     const { held } = takeLock(lock)
     if (held === undefined) break
-    if (!waited) note(`waiting for build of harness ${commit.slice(0, 10)} (pid ${held})`)
+    if (!waited) note(`waiting for the build of ${kind} ${commit.slice(0, 10)} (pid ${held})`)
     waited = true
     await sleep(5000)
   }
   try {
-    if (buildReady(commit)) return dir
+    if (buildReady(commit, kind)) return dir
     const started = Date.now()
-    const log = openRunLog(join(machineLogDir(), 'builds'), { tag: `harness-${commit.slice(0, 12)}-${process.pid}`, keep: 50, days: 30 })
-    log.identify(`${ROOT_NAME} build harness ${commit} pid ${process.pid}`)
-    writeRecord(commit, { status: 'building', started: isoLocal(), log: log.path })
+    const log = openRunLog(join(machineLogDir(), 'builds'), { tag: `${kind}-${commit.slice(0, 12)}-${process.pid}`, keep: 50, days: 30 })
+    log.identify(`${ROOT_NAME} build ${kind} ${commit} pid ${process.pid}`)
+    writeRecord(commit, kind, { status: 'building', started: isoLocal(), log: log.path })
     try {
-      if (!existsSync(dir)) {
-        note(`checking out harness ${commit.slice(0, 10)}`)
-        git(repo, ['worktree', 'prune'])
-        git(repo, ['worktree', 'add', '--detach', dir, commit])
-      }
-      note(`installing dependencies (log: ${log.path})`)
-      await runStep('install', 'pnpm', ['install', '--frozen-lockfile'], dir, log)
-      note('building (several minutes the first time)')
-      await runStep('build', 'pnpm', ['run', 'build'], dir, log)
+      await make(dir, log)
     } catch (error) {
-      writeRecord(commit, { status: 'failed', started: isoLocal(new Date(started)), error: error.message, log: log.path })
+      writeRecord(commit, kind, { status: 'failed', started: isoLocal(new Date(started)), error: error.message, log: log.path })
       throw error
     } finally {
       log.close()
     }
-    writeRecord(commit, { status: 'ready', started: isoLocal(new Date(started)), finished: isoLocal(), seconds: Math.round((Date.now() - started) / 1000), log: log.path })
-    note(`harness ${commit.slice(0, 10)} built in ${Math.round((Date.now() - started) / 1000)} s`)
+    const seconds = Math.round((Date.now() - started) / 1000)
+    writeRecord(commit, kind, { status: 'ready', started: isoLocal(new Date(started)), finished: isoLocal(), seconds, log: log.path })
+    note(`${kind} ${commit.slice(0, 10)} built in ${seconds} s`)
     return dir
   } finally {
     rmSync(lock, { recursive: true, force: true })
   }
+}
+
+/**
+ * Make sure harness `commit` has a ready build: a detached worktree of the
+ * harness repository, `pnpm install --frozen-lockfile`, `pnpm run build`.
+ * Returns the build directory.
+ */
+export function ensureBuild(commit, repo = harnessRepo()) {
+  return ensureBuilt('harness', commit, async (dir, log) => {
+    if (!existsSync(dir)) {
+      note(`checking out harness ${commit.slice(0, 10)}`)
+      git(repo, ['worktree', 'prune'])
+      git(repo, ['worktree', 'add', '--detach', dir, commit])
+    }
+    note(`installing dependencies (log: ${log.path})`)
+    await runStep('install', 'pnpm', ['install', '--frozen-lockfile'], dir, log)
+    note('building (several minutes the first time)')
+    await runStep('build', 'pnpm', ['run', 'build'], dir, log)
+  })
 }
 
 /**
