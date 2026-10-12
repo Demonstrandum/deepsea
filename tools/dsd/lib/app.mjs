@@ -107,7 +107,8 @@ export function buildThrowawayApp(id, { source, harnessBuild }) {
 export function launchApp(id, { executable, url, visible }) {
   const socket = appSocketOf(id)
   if (socket.length > SOCKET_PATH_MAX) throw new DsdError(`the automation socket path is too long for macOS (${socket.length} > ${SOCKET_PATH_MAX} bytes): ${socket}; use a shorter DEEPSEA_ROOT`)
-  const args = ['--url', url, '--ephemeral', '--automation', socket, ...(visible ? [] : ['--hidden'])]
+  // Downloads stay inside the throwaway, so a test never writes into ~/Downloads.
+  const args = ['--url', url, '--ephemeral', '--automation', socket, '--downloads', join(homeOf(id), 'downloads'), ...(visible ? [] : ['--hidden'])]
   const child = spawn(executable, args, { detached: true, stdio: 'ignore' })
   return { child, socket, signature: [executable, '--automation'] }
 }

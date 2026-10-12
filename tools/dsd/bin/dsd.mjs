@@ -24,7 +24,7 @@ const HELP = `dsd — DeepSea developer CLI (tools/dsd/README.md)
   dsd builds [list | make [<harness ref>]]
   dsd link
   dsd drive [-v <ref>] <op> …   server: health create-session prompt command wait events cancel sessions invoke url
-                                app: load reload wait-page eval resize view appearance click type describe snapshot window-info app-log quit
+                                app: load reload wait-page eval resize view appearance click type describe snapshot window-info app-log opened quit
   dsd script <file.mjs> [-v <ref>]
   dsd worktree add <topic> [--from <ref>] | list | remove <topic>
   dsd topics [list] | check | integrate [--dry-run]

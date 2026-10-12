@@ -151,10 +151,12 @@ export async function run(argv) {
   const build = await ensureBuild(commit, repo)
   const plugins = selectPlugins(args.plugins, source?.dir)
   // Every throwaway gets the test driver (dsd drive; it arms only in a throwaway home) and the
-  // server log (plugin log messages into the server's log).
-  for (const always of ['test-driver', 'server-log', ...(args.scripted ? ['scripted-model'] : [])]) {
+  // server log (plugin log messages into the server's log), loaded first so it hears the others start.
+  for (const always of ['test-driver', ...(args.scripted ? ['scripted-model'] : [])]) {
     if (!plugins.some(p => p.name === always)) plugins.push(...selectPlugins(always, source?.dir))
   }
+  const serverLog = plugins.findIndex(p => p.name === 'server-log')
+  plugins.unshift(...(serverLog >= 0 ? plugins.splice(serverLog, 1) : selectPlugins('server-log', source?.dir)))
   // A build's plugins are installed and built already; this checkout's are prepared on demand.
   if (plugins.length > 0 && !source) {
     await linkHarness()

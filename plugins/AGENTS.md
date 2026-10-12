@@ -59,6 +59,7 @@ Contracts between plugins, so plugins ported separately agree:
 | headers `x-deepsea-tailscale: 1`, `x-deepsea-tailscale-self: 1` on proxied requests | `tailscale` | `import-sessions` |
 | header `X-DeepSea-Forward-Error` (loopback forward refusals) | `tailscale` | the macOS app |
 | attribute `data-deepsea-remote-session` on remote session rows | `remote-workspaces` | `numbered-switching` |
+| page global `__DEEPSEA_SESSION_TITLE_SLUG__` (`{ parseSlug }`) | `session-title-slug` | `remote-workspaces` (slug previews on its New Session rows) |
 
 A plugin that uses a contract whose provider is not ported yet keeps the use
 (optional, as before) under the new name. `dialog-keys.ts` (Enter presses a

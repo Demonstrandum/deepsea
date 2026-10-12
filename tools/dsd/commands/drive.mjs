@@ -24,7 +24,7 @@
  *   type <text | -> | type --key <Enter | Escape | cmd+k | …>
  *   describe <css> [--nth <n>]            the element inspector's record
  *   snapshot [<css> [--nth <n>]] [--window] [--chrome]
- *   window-info | app-log [--lines <n>] | quit
+ *   window-info | app-log [--lines <n>] | opened [--clear] | quit
  *
  * <session> is a session id, or `last`: the session the last create-session
  * on this throwaway made. `-` reads the prompt from stdin (a scripted-model
@@ -39,8 +39,8 @@ import { appRequest } from '../lib/appsocket.mjs'
 import { readState, resolveRef } from '../lib/variants.mjs'
 import { DsdError, onlyFlags, parseArgs, printJson, usage } from '../lib/util.mjs'
 
-const USAGE = 'dsd drive [-v <ref>] <op> …  server: health create-session prompt command wait events cancel sessions invoke url; app: load reload wait-page eval resize view appearance click type describe snapshot window-info app-log quit (tools/dsd/README.md)'
-const APP_OPS = new Set(['load', 'reload', 'wait-page', 'eval', 'resize', 'view', 'appearance', 'click', 'type', 'describe', 'snapshot', 'window-info', 'app-log', 'quit'])
+const USAGE = 'dsd drive [-v <ref>] <op> …  server: health create-session prompt command wait events cancel sessions invoke url; app: load reload wait-page eval resize view appearance click type describe snapshot window-info app-log opened quit (tools/dsd/README.md)'
+const APP_OPS = new Set(['load', 'reload', 'wait-page', 'eval', 'resize', 'view', 'appearance', 'click', 'type', 'describe', 'snapshot', 'window-info', 'app-log', 'opened', 'quit'])
 const LAST_SESSION = 'run/drive-last-session'
 
 /** POST one operation to the throwaway's test driver; resolve its value or throw its error. */
@@ -85,7 +85,7 @@ export async function drive(argv) {
   // `-v <ref>` is short for `--variant <ref>`.
   const valued = ['variant', 'cwd', 'preset', 'model', 'title', 'timeout', 'since', 'types', 'limit', 'nth', 'clicks', 'x', 'y', 'key', 'selector', 'text', 'expression', 'settle', 'lines']
   const args = parseArgs(argv.map(a => (a === '-v' ? '--variant' : a)), valued)
-  onlyFlags(args, [...valued, 'no-wait', 'steer', 'window', 'chrome'])
+  onlyFlags(args, [...valued, 'no-wait', 'steer', 'window', 'chrome', 'clear'])
   const [op, ...rest] = args._
   if (op === undefined) usage(USAGE)
   const variant = resolveRef(args.variant)
@@ -202,6 +202,7 @@ async function appOp(variant, op, rest, args) {
     }
     case 'window-info': return send('window-info')
     case 'app-log': return send('log', count('lines'))
+    case 'opened': return send('opened', args.clear ? { clear: true } : {})
     case 'quit': return send('quit')
   }
   return undefined
