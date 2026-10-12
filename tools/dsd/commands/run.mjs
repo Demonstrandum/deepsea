@@ -151,7 +151,8 @@ export async function run(argv) {
   const build = await ensureBuild(commit, repo)
   const plugins = selectPlugins(args.plugins, source?.dir)
   // Every throwaway gets the test driver (dsd drive; it arms only in a throwaway home) and the
-  // server log (plugin log messages into the server's log), loaded first so it hears the others start.
+  // server log (plugin log messages into the server's log), first in order (rows still load
+  // concurrently, so a message logged during startup can precede it).
   for (const always of ['test-driver', ...(args.scripted ? ['scripted-model'] : [])]) {
     if (!plugins.some(p => p.name === always)) plugins.push(...selectPlugins(always, source?.dir))
   }
