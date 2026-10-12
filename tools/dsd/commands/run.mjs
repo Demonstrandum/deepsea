@@ -1,5 +1,5 @@
 /**
- * dsd run <v> --throwaway-app | --throwaway-server [--visible] [--detach] [--scripted]
+ * dsd run <v> --throwaway | --throwaway-app | --throwaway-server [--visible] [--detach] [--scripted]
  *   [--plugins <names|all>] [--app <checkout | ref>] [--source <ref>] [--harness <ref>]
  *   [--patch <file>[,<file>…]] [--ttl <minutes>] [--keep] [--timeout <s>]
  *
@@ -7,6 +7,13 @@
  * shared build of the harness commit, waits until it answers, and with
  * --throwaway-app also builds the app (lib/app.mjs) and opens it on the
  * server: hidden and focus-free unless --visible, with its automation socket.
+ * --throwaway runs it as an installed variant runs, as child processes: the
+ * relay (apps/relay, lib/components.mjs) on a free port, which starts `dsh
+ * web` on the first connection and again after every exit, and the app with
+ * the relay built in as its entry point and the relay's standing token as its
+ * token file; its first connection is the cold start. dsd then treats the
+ * relay as the throwaway's process (the server's pid changes on every
+ * restart).
  * Prints the facts as JSON. `--plugins` loads this checkout's plugins in
  * place (lib/plugins.mjs), or with `--source <ref>` those of an immutable
  * build of that commit (lib/source.mjs), which also gives the harness pin
@@ -22,23 +29,22 @@
  * `dsd stop` ends either kind.
  */
 import { randomBytes } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { join, resolve } from 'node:path'
 import { appSocketOf, appSource, buildThrowawayApp, launchApp, waitAppReady } from '../lib/app.mjs'
+import { appRequest } from '../lib/appsocket.mjs'
+import { componentSource } from '../lib/components.mjs'
 import { ensureSourceBuild, resolveSourceCommit } from '../lib/source.mjs'
 import { runNamed } from './variant.mjs'
 import { buildPaths, ensureBuild, harnessRepo, linkHarness, readLock, resolveHarnessCommit } from '../lib/harness.mjs'
 import { openRunLog } from '../lib/logs.mjs'
 import { preparePlugin, selectPlugins, writePluginPatches } from '../lib/plugins.mjs'
 import { homeOf, logDirOf, REPO, variantName } from '../lib/paths.mjs'
-import { alive, freePort } from '../lib/processes.mjs'
-import { removeVariant } from '../lib/remove.mjs'
+import { alive, freePort, listenerPids } from '../lib/processes.mjs'
+import { removeVariant, SERVER_ENTRY } from '../lib/remove.mjs'
 import { DsdError, isoLocal, note, onlyFlags, parseArgs, printJson, sleep, usage } from '../lib/util.mjs'
 import { checkNamedId, currentOwner, displayName, writeState, writeVariant } from '../lib/variants.mjs'
-
-/** The server's entry; with the port, the signature dsd checks before signalling. */
-const SERVER_ENTRY = 'apps/cli/src/bin.ts'
 
 /**
  * Rows every throwaway's web profile gets: no telemetry leaves the machine,
@@ -113,21 +119,76 @@ function tail(path, lines) {
   try { return readFileSync(path, 'utf8').trimEnd().split('\n').slice(-lines).join('\n') } catch { return '' }
 }
 
+/**
+ * The tailscale plugin's proxy port, when a patch gives its row one (`proxyPort: <n>` in the
+ * `deepsea-tailscale` row): the relay then hands tailnet clients to it. A throwaway has no port
+ * block, so the plugin runs a proxy only when configured.
+ */
+export function proxyPortOf(patchTexts) {
+  let port
+  for (const text of patchTexts) {
+    for (const row of String(text).split(/^\s*-\s+(?=id:)/m)) {
+      if (!/^id:\s*['"]?deepsea-tailscale['"]?\s*$/m.test(row)) continue
+      const m = /^\s*proxyPort:\s*(\d+)\s*$/m.exec(row)
+      if (m) port = Number(m[1])
+    }
+  }
+  return port
+}
+
+/** Wait until the relay listens and has written its standing token; returns the token. Asks lsof, since any connection to the relay starts the server, and the app's should be the first. */
+async function waitRelay(child, { port, tokenFile, consoleLog }, timeoutMs) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null || !alive(child.pid)) throw new DsdError(`the relay exited before it listened; ${consoleLog}:\n${tail(consoleLog, 25)}`)
+    let token
+    try { token = JSON.parse(readFileSync(tokenFile, 'utf8')).token } catch { /* not yet */ }
+    if (token && listenerPids(port).includes(child.pid)) return token
+    await sleep(200)
+  }
+  throw new DsdError(`the relay did not listen within ${Math.round(timeoutMs / 1000)} s; ${consoleLog}:\n${tail(consoleLog, 25)}`)
+}
+
+/**
+ * Wait until the server answers through the relay: anything but the relay's own 503. Asking
+ * starts it, as any connection does. `failed` (a streak of failed starts) ends the wait.
+ */
+async function waitServerThroughRelay(child, { url, serverLog }, timeoutMs) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null || !alive(child.pid)) throw new DsdError(`the relay exited; server log: ${serverLog}\n${tail(serverLog, 25)}`)
+    try {
+      const response = await fetch(url, { redirect: 'manual', signal: AbortSignal.timeout(2000) })
+      const kind = response.headers.get('x-deepsea-relay')
+      if (kind === 'failed') throw new DsdError(`the relay could not start the server; log: ${serverLog}\n${tail(serverLog, 25)}`)
+      if (kind === null) return response.status
+    } catch (error) { if (error instanceof DsdError) throw error }
+    await sleep(500)
+  }
+  throw new DsdError(`no server through the relay within ${Math.round(timeoutMs / 1000)} s; log: ${serverLog}\n${tail(serverLog, 25)}`)
+}
+
+/** Two distinct free ports. */
+async function freePorts(count) {
+  const ports = new Set()
+  while (ports.size < count) ports.add(await freePort())
+  return [...ports]
+}
+
 export async function run(argv) {
   const args = parseArgs(argv, ['source', 'harness', 'timeout', 'plugins', 'ttl', 'app', 'patch'])
   onlyFlags(args, ['throwaway', 'throwaway-app', 'throwaway-server', 'detach', 'source', 'harness', 'keep', 'timeout', 'plugins', 'ttl', 'scripted', 'visible', 'app', 'patch', 'no-app'])
   const extraPatches = typeof args.patch === 'string' ? args.patch.split(',').filter(Boolean).map(f => resolve(f)) : []
   for (const file of extraPatches) if (!existsSync(file)) usage(`--patch: no file ${file}`)
   const parent = args._[0]
-  if (parent === undefined || args._.length > 1) usage('dsd run <variant> --throwaway-app | --throwaway-server [--visible] [--detach]')
+  if (parent === undefined || args._.length > 1) usage('dsd run <variant> [--throwaway | --throwaway-app | --throwaway-server] [--visible] [--detach]')
   checkNamedId(parent)
-  const mode = args['throwaway-app'] ? 'app' : args['throwaway-server'] ? 'server' : undefined
-  if (mode === undefined) {
-    if (args.throwaway) throw new DsdError('--throwaway (server, relay and app) is not built yet; use --throwaway-app or --throwaway-server')
-    return runNamed(parent, args)
-  }
-  if (args['throwaway-app'] && args['throwaway-server']) usage('--throwaway-app and --throwaway-server are alternatives')
-  if (mode === 'server' && (args.visible || args.app)) usage('--visible and --app are for --throwaway-app')
+  const kinds = ['throwaway', 'throwaway-app', 'throwaway-server'].filter(flag => args[flag])
+  if (kinds.length > 1) usage('--throwaway, --throwaway-app and --throwaway-server are alternatives')
+  // full: relay, server and app, as an installed variant runs; app: server and app; server: server only.
+  const mode = { throwaway: 'full', 'throwaway-app': 'app', 'throwaway-server': 'server' }[kinds[0]]
+  if (mode === undefined) return runNamed(parent, args)
+  if (mode === 'server' && (args.visible || args.app)) usage('--visible and --app are for --throwaway and --throwaway-app')
   const timeoutMs = Number(args.timeout ?? 180) * 1000
 
   // Which code: with --source, an immutable build of that commit of this repository (its plugins,
@@ -139,7 +200,11 @@ export async function run(argv) {
   const lock = readLock(undefined, source?.dir)
   const repo = harnessRepo(lock)
   const commit = resolveHarnessCommit(args.harness ?? lock.commit, repo)
-  const app = mode === 'app' ? appSource(source ? source.dir : typeof args.app === 'string' ? args.app : undefined) : undefined
+  const app = mode !== 'server' ? appSource(source ? source.dir : typeof args.app === 'string' ? args.app : undefined) : undefined
+  // The relay: the source build's, else this checkout's, else topic/relay's (lib/components.mjs).
+  const relaySource = mode === 'full'
+    ? (source && existsSync(join(source.dir, 'apps', 'relay', 'relay.mjs')) ? componentSource('relay', source.dir) : componentSource('relay'))
+    : undefined
   const build = await ensureBuild(commit, repo)
   const plugins = selectPlugins(args.plugins, source?.dir)
   // Every throwaway gets the test driver (dsd drive; it arms only in a throwaway home) and the
@@ -164,46 +229,82 @@ export async function run(argv) {
   const id = newThrowawayId(parent)
   const home = makeHome(id, { parent, commit, build, expires, scripted: Boolean(args.scripted), mode, source })
   const cleanup = async () => removeVariant(id, { keep: Boolean(args.keep) })
+  const [port, relayPort] = await freePorts(2)
+  const relay = mode === 'full'
+    ? { port: relayPort, url: `http://127.0.0.1:${relayPort}/`, tokenFile: join(home, 'relay', 'state.json'), log: join(logDirOf(id), 'relay', 'latest.log'), consoleLog: join(logDirOf(id), 'relay', 'console.log') }
+    : undefined
   let bundle
   if (app) {
-    try { bundle = buildThrowawayApp(id, { source: app, harnessBuild: build }) } catch (error) { await cleanup(); throw error }
+    // With a relay, the app is built as an installed variant's is: the relay as its entry point and
+    // fallback, the relay's standing token as its token file.
+    const entry = relay ? { url: relay.url, fallbackUrl: relay.url, tokenFile: relay.tokenFile } : undefined
+    try { bundle = buildThrowawayApp(id, { source: app, harnessBuild: build, entry }) } catch (error) { await cleanup(); throw error }
   }
 
-  const port = await freePort()
-  const log = openRunLog(join(logDirOf(id), 'server'), { tag: 'pending' })
-  const env = { ...process.env, DSH_HOME: home }
   // The plugins' own patches, then the caller's: a later layer replaces a row's whole config.
   const patches = [...writePluginPatches(plugins, join(home, 'run', 'plugins')), ...extraPatches]
-  const child = spawn(process.execPath, ['--import', 'tsx/esm', SERVER_ENTRY, '--profile', 'web', ...patches.flatMap(p => ['--patch', p]), '--no-open', '--port', String(port)], {
-    cwd: build, env, detached: true, stdio: ['ignore', log.fd, log.fd],
-  })
-  log.identify(`${variantName(id)} server pid ${child.pid} dsh web --port ${port} harness ${commit.slice(0, 10)}${plugins.length ? ` plugins ${plugins.map(p => p.name).join(',')}` : ''}`)
-  log.rename(child.pid)
-  log.close()
-  const signature = [SERVER_ENTRY, `--no-open --port ${port}`]
-  const facts = { pid: child.pid, signature, port, log: log.path, started: isoLocal(), harness: commit, build, ...(source ? { source: source.dir } : {}) }
-  writeState(id, facts)
-
-  let ready
-  try {
-    ready = await waitReady(child, log.path, timeoutMs)
-  } catch (error) {
-    await cleanup()
-    throw error
+  const serverArgs = ['--import', 'tsx/esm', relay ? join(build, SERVER_ENTRY) : SERVER_ENTRY, '--profile', 'web', ...patches.flatMap(p => ['--patch', p]), '--no-open', '--port', String(port)]
+  const pluginNote = plugins.length ? ` plugins ${plugins.map(p => p.name).join(',')}` : ''
+  let child
+  let facts
+  if (relay) {
+    const proxyPort = plugins.some(p => p.name === 'tailscale') ? proxyPortOf(patches.map(p => readFileSync(p, 'utf8'))) : undefined
+    const relayArgs = [relaySource.entry, '--variant', id, '--home', home, '--listen', `127.0.0.1:${relay.port}`, '--dsh', `127.0.0.1:${port}`,
+      ...(proxyPort ? ['--proxy', `127.0.0.1:${proxyPort}`] : []), '--log-dir', logDirOf(id), '--cwd', build, '--', process.execPath, ...serverArgs]
+    mkdirSync(join(logDirOf(id), 'relay'), { recursive: true, mode: 0o700 })
+    const consoleFd = openSync(relay.consoleLog, 'a', 0o600)
+    // The relay sets DSH_HOME (and DSH_LAUNCH_TOKEN, DEEPSEA_VARIANT, DEEPSEA_RELAY) for the server it starts.
+    const env = { ...process.env }
+    delete env.DSH_HOME
+    child = spawn(process.execPath, relayArgs, { cwd: build, env, detached: true, stdio: ['ignore', consoleFd, consoleFd] })
+    closeSync(consoleFd)
+    facts = {
+      pid: child.pid, signature: [relaySource.entry, `--listen 127.0.0.1:${relay.port}`], port, log: join(logDirOf(id), 'server', 'latest.log'),
+      started: isoLocal(), harness: commit, build, ...(source ? { source: source.dir } : {}),
+      relay: { port: relay.port, url: relay.url, log: relay.log, source: relaySource.describe, dir: relaySource.dir, ...(proxyPort ? { proxy: proxyPort } : {}) },
+    }
+    writeState(id, facts)
+    try {
+      const token = await waitRelay(child, relay, Math.min(timeoutMs, 30_000))
+      Object.assign(facts, { url: relay.url, token })
+      writeState(id, facts)
+    } catch (error) {
+      await cleanup()
+      throw error
+    }
+  } else {
+    const log = openRunLog(join(logDirOf(id), 'server'), { tag: 'pending' })
+    child = spawn(process.execPath, serverArgs, { cwd: build, env: { ...process.env, DSH_HOME: home }, detached: true, stdio: ['ignore', log.fd, log.fd] })
+    log.identify(`${variantName(id)} server pid ${child.pid} dsh web --port ${port} harness ${commit.slice(0, 10)}${pluginNote}`)
+    log.rename(child.pid)
+    log.close()
+    facts = { pid: child.pid, signature: [SERVER_ENTRY, `--no-open --port ${port}`], port, log: log.path, started: isoLocal(), harness: commit, build, ...(source ? { source: source.dir } : {}) }
+    writeState(id, facts)
+    try {
+      const ready = await waitReady(child, log.path, timeoutMs)
+      Object.assign(facts, { url: ready.url, token: ready.token })
+      writeState(id, facts)
+    } catch (error) {
+      await cleanup()
+      throw error
+    }
   }
-  const login = `${ready.url}?token=${ready.token}`
-  Object.assign(facts, { url: ready.url, token: ready.token })
-  writeState(id, facts)
+  const login = `${facts.url}?token=${facts.token}`
 
   let appChild
   let hello
   if (bundle) {
-    const launched = launchApp(id, { executable: bundle.executable, url: login, visible: Boolean(args.visible) })
+    // With a relay the app makes the first connection, so it sees the cold start: the relay's page,
+    // then the GUI once the server answers.
+    const launched = launchApp(id, { executable: bundle.executable, url: relay ? undefined : login, visible: Boolean(args.visible) })
     appChild = launched.child
     facts.app = { pid: appChild.pid, signature: launched.signature, socket: launched.socket, dir: bundle.dir, path: bundle.app, visible: Boolean(args.visible) }
     writeState(id, facts)
     try {
+      if (relay) await waitServerThroughRelay(child, { url: relay.url, serverLog: facts.log }, timeoutMs)
       hello = await waitAppReady(appChild, launched.socket, timeoutMs)
+      // The relay's page counts as loaded; wait for the GUI it reloads into.
+      if (relay) await appRequest(launched.socket, 'wait-page', { expression: 'return Boolean(globalThis.__DSH_BOOT__)', timeoutMs }, { timeoutMs: timeoutMs + 10_000 })
     } catch (error) {
       await cleanup()
       throw error
@@ -228,8 +329,9 @@ export async function run(argv) {
 
   printJson({
     id, name: variantName(id), display: displayName(id), home, mode,
-    url: ready.url, login, token: ready.token,
-    pid: child.pid, port, log: log.path, harness: commit.slice(0, 10), ...(source ? { source: `${source.ref} (${source.commit.slice(0, 10)})` } : {}), plugins: plugins.map(p => p.name), detached: Boolean(args.detach), expires,
+    url: facts.url, login, token: facts.token,
+    pid: child.pid, port, log: facts.log, harness: commit.slice(0, 10), ...(source ? { source: `${source.ref} (${source.commit.slice(0, 10)})` } : {}), plugins: plugins.map(p => p.name), detached: Boolean(args.detach), expires,
+    ...(relay ? { relay: { pid: child.pid, ...facts.relay } } : {}),
     ...(bundle ? { app: { path: bundle.app, pid: appChild.pid, socket: appSocketOf(id), log: hello.log, visible: Boolean(args.visible), source: app.describe } } : {}),
   })
 
@@ -247,14 +349,16 @@ export async function run(argv) {
     }
     for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(signal, stop)
     // With an app, the app decides: after a /reboot or /restore its page shows what happened, so
-    // the throwaway stays until the app quits. Without one, the server's exit ends it.
+    // the throwaway stays until the app quits. Without one, the server's exit ends it. With a relay
+    // the relay is the process watched: it restarts the server.
     let serverGone = false
+    const what = relay ? 'relay' : 'server'
     watch = setInterval(() => {
       if (appChild && !alive(appChild.pid)) { note(`${id}: the app quit`); void stop() }
       else if (!serverGone && !alive(child.pid)) {
         serverGone = true
-        if (appChild) note(`${id}: the server exited; the app stays until it quits, Ctrl-C or \`dsd stop ${id}\``)
-        else { note(`${id}: the server exited`); void stop() }
+        if (appChild) note(`${id}: the ${what} exited; the app stays until it quits, Ctrl-C or \`dsd stop ${id}\``)
+        else { note(`${id}: the ${what} exited`); void stop() }
       }
     }, 1000)
   })

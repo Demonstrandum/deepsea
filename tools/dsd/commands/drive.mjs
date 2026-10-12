@@ -36,8 +36,9 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { homeOf } from '../lib/paths.mjs'
 import { appRequest } from '../lib/appsocket.mjs'
+import { alive } from '../lib/processes.mjs'
 import { readState, resolveRef } from '../lib/variants.mjs'
-import { DsdError, onlyFlags, parseArgs, printJson, usage } from '../lib/util.mjs'
+import { DsdError, onlyFlags, parseArgs, printJson, sleep, usage } from '../lib/util.mjs'
 
 const USAGE = 'dsd drive [-v <ref>] <op> …  server: health create-session prompt command wait events cancel sessions invoke url; app: load reload wait-page eval resize view appearance click type describe snapshot window-info app-log opened quit (tools/dsd/README.md)'
 const APP_OPS = new Set(['load', 'reload', 'wait-page', 'eval', 'resize', 'view', 'appearance', 'click', 'type', 'describe', 'snapshot', 'window-info', 'app-log', 'opened', 'quit'])
@@ -64,13 +65,38 @@ export function post(driver, op, body) {
   })
 }
 
-/** The test driver of a running throwaway. */
-export function driverOf(variant) {
+/** The test driver's endpoint file, when the server that wrote it is still running. */
+function currentDriver(file) {
+  try {
+    const driver = JSON.parse(readFileSync(file, 'utf8'))
+    return driver.pid !== undefined && alive(driver.pid) ? driver : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * The test driver of a running throwaway. Behind a relay the server comes and goes (`/reboot`,
+ * `/restore`, a crash): each start writes a new endpoint with a new token, and the relay starts
+ * the server on the next connection, so the driver is asked for after a knock on the relay.
+ */
+export async function driverOf(variant, timeoutMs = 90_000) {
   if (!variant.throwaway) throw new DsdError(`${variant.id} is not a throwaway; dsd drive only drives throwaways`)
   if (!variant.running) throw new DsdError(`${variant.id} is not running`)
   const file = join(homeOf(variant.id), 'run', 'test-driver.json')
-  if (!existsSync(file)) throw new DsdError(`${variant.id} has no test driver (${file} missing): it started without plugins/test-driver, or the plugin failed to load (see its log)`)
-  return JSON.parse(readFileSync(file, 'utf8'))
+  const relay = variant.state?.relay
+  if (relay === undefined) {
+    if (!existsSync(file)) throw new DsdError(`${variant.id} has no test driver (${file} missing): it started without plugins/test-driver, or the plugin failed to load (see its log)`)
+    return JSON.parse(readFileSync(file, 'utf8'))
+  }
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    const driver = currentDriver(file)
+    if (driver !== undefined) return driver
+    if (Date.now() > deadline) throw new DsdError(`${variant.id}: no test driver within ${Math.round(timeoutMs / 1000)} s of asking the relay to start the server (see dsd logs ${variant.id})`)
+    try { await fetch(relay.url, { method: 'HEAD', signal: AbortSignal.timeout(2000) }) } catch { /* the relay answers or starts it either way */ }
+    await sleep(500)
+  }
 }
 
 const readStdin = () => readFileSync(0, 'utf8')
@@ -102,7 +128,7 @@ export async function drive(argv) {
     const state = readState(variant.id)
     return printJson({ id: variant.id, url: state?.url, login: state?.url && state?.token ? `${state.url}?token=${state.token}` : undefined })
   }
-  const driver = driverOf(variant)
+  const driver = await driverOf(variant)
   switch (op) {
     case 'health': return printJson(await post(driver, 'health', {}))
     case 'sessions': return printJson(await post(driver, 'sessions', {}))

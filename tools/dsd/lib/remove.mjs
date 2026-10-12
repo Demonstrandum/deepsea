@@ -9,7 +9,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { deepseaRoot, homeOf, logDirOf, variantName } from './paths.mjs'
 import { appDirOf, quitApp, removeAppBundle } from './app.mjs'
-import { alive, runningAs, stopGroup } from './processes.mjs'
+import { alive, listenerPids, runningAs, stopGroup } from './processes.mjs'
 import { DsdError } from './util.mjs'
 import { isRunning, parseThrowaway, readState } from './variants.mjs'
 
@@ -21,12 +21,30 @@ export function refuseOwnHome(id) {
   if (own && real(own) === real(homeOf(id))) throw new DsdError(`${id} is the variant this process runs in; dsd will not stop it`)
 }
 
-/** Stop a variant's recorded server, if it is still the process dsd started. Returns whether it was running. */
+/** The server's entry, as its command line shows it; with `--port <n>`, a server's signature. */
+export const SERVER_ENTRY = 'apps/cli/src/bin.ts'
+
+/**
+ * Stop a variant's recorded process, if it is still the one dsd started: the server, or for a
+ * throwaway with a relay the relay, which stops its server's process group (it allows that 15 s).
+ * A server the relay left behind (the relay was killed) is found by its port. Returns whether
+ * anything was running.
+ */
 export async function stopServer(id) {
   const state = readState(id)
-  if (!isRunning(state)) return false
-  await stopGroup(state.pid)
-  return true
+  let stopped = false
+  if (isRunning(state)) {
+    await stopGroup(state.pid, state.relay ? 20_000 : 10_000)
+    stopped = true
+  }
+  if (state?.relay && state.port) {
+    for (const pid of listenerPids(state.port)) {
+      if (!runningAs(pid, [SERVER_ENTRY, `--port ${state.port}`])) continue
+      await stopGroup(pid)
+      stopped = true
+    }
+  }
+  return stopped
 }
 
 /** macOS directories and files kept for a bundle id and its components (`<name>`, `<name>.<component>`). */

@@ -29,12 +29,14 @@ export async function script(argv) {
   const state = readState(variant.id)
   const mod = await import(pathToFileURL(resolve(args._[0])).href)
   if (typeof mod.default !== 'function') throw new DsdError(`${args._[0]} has no default export function`)
+  // Behind a relay the server (and so its driver endpoint) changes on every restart: ask each time.
   let driver
+  const server = async () => (state?.relay ? driverOf(variant) : (driver ??= await driverOf(variant)))
   const api = {
     id: variant.id,
     url: state?.url,
     login: state?.url && state?.token ? `${state.url}?token=${state.token}` : undefined,
-    server: (op, body = {}) => post(driver ??= driverOf(variant), op, body),
+    server: async (op, body = {}) => post(await server(), op, body),
     app: (op, body = {}, options) => {
       if (!state?.app?.socket) throw new DsdError(`${variant.id} has no app (it was started with --throwaway-server)`)
       return appRequest(state.app.socket, op, body, options)

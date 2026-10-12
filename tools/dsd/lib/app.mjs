@@ -1,27 +1,29 @@
 /**
  * Throwaway apps: where the app's source comes from, building a throwaway's
- * bundle, launching it against the throwaway's server, waiting until it
- * answers, and quitting and unregistering it.
+ * bundle, launching it, waiting until it answers, and quitting and
+ * unregistering it.
  *
  * The app source is `apps/macos` of, in order: `--app <path>` (a checkout or
  * worktree, used as it is), this checkout when it has one, or a commit
  * (`--app <ref>`, default the branch topic/macos-app), extracted once into
- * `_builds/macos-src-<12 hex>/`. Compiled executables are cached by source
- * hash in `_builds/macos-<12 hex>/` (apps/macos/build.mjs), so a throwaway's
- * bundle is assembled in well under a second once its source has been built.
+ * `_builds/macos-src-<12 hex>/` (lib/components.mjs). Compiled executables
+ * are cached by source hash in `_builds/macos-<12 hex>/` (apps/macos/build.mjs),
+ * so a throwaway's bundle is assembled in well under a second once its source
+ * has been built.
  */
 import { execFileSync, spawn } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
 import { appRequest } from './appsocket.mjs'
-import { buildsDir, homeOf, mainCheckout, REPO, variantName } from './paths.mjs'
+import { COMPONENTS, componentSource } from './components.mjs'
+import { buildsDir, homeOf, variantName } from './paths.mjs'
 import { alive, runningAs } from './processes.mjs'
-import { DsdError, git, note, sleep } from './util.mjs'
+import { DsdError, note, sleep } from './util.mjs'
 import { displayName } from './variants.mjs'
 
 /** The default app source when this checkout has none. */
-export const APP_BRANCH = 'topic/macos-app'
+export const APP_BRANCH = COMPONENTS.macos.branch
 /** Throwaway apps' glyph colour, so they never look like an installed variant. */
 export const THROWAWAY_COLOR = '#F76B15'
 const LSREGISTER = '/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister'
@@ -33,47 +35,12 @@ export const appDirOf = id => join(tmpdir(), `deepsea-app-${id}`)
 /** The automation socket of a throwaway's app. */
 export const appSocketOf = id => join(homeOf(id), 'run', 'app.sock')
 
-const hasApp = checkout => existsSync(join(checkout, 'apps', 'macos', 'build.mjs'))
-
 /**
- * The app source to build: `{ dir, describe, build }`, where `build` is the
+ * The app source to build (lib/components.mjs): `{ dir, describe, build }`, where `build` is the
  * CFBundleVersion to stamp (a commit, `+` when the tree has uncommitted changes).
  */
 export function appSource(choice) {
-  const fromCheckout = (checkout) => {
-    let build = 'unknown'
-    try {
-      build = git(checkout, ['rev-parse', '--short=10', 'HEAD'])
-      if (git(checkout, ['status', '--porcelain', '--', 'apps/macos'])) build += '+'
-    } catch { /* not a git checkout */ }
-    return { dir: join(checkout, 'apps', 'macos'), describe: `${checkout}/apps/macos`, build }
-  }
-  if (choice !== undefined && (choice.startsWith('/') || choice.startsWith('.') || choice.startsWith('~'))) {
-    const path = resolve(choice.replace(/^~(?=\/)/, process.env.HOME ?? '~'))
-    if (hasApp(path)) return fromCheckout(path)
-    if (existsSync(join(path, 'build.mjs')) && existsSync(join(path, 'Sources'))) return { dir: path, describe: path, build: 'local' }
-    throw new DsdError(`${path} has no apps/macos`)
-  }
-  if (choice === undefined && hasApp(REPO)) return fromCheckout(REPO)
-  const ref = choice ?? APP_BRANCH
-  let commit
-  try { commit = git(mainCheckout(), ['rev-parse', '--verify', `${ref}^{commit}`]) } catch {
-    throw new DsdError(`no app source: this checkout has no apps/macos and "${ref}" is not a commit (use --app <checkout | ref>)`)
-  }
-  const target = join(buildsDir(), `macos-src-${commit.slice(0, 12)}`)
-  if (!existsSync(join(target, 'apps', 'macos', 'build.mjs'))) {
-    const work = `${target}.tmp-${process.pid}`
-    rmSync(work, { recursive: true, force: true })
-    mkdirSync(work, { recursive: true })
-    try {
-      execFileSync('/bin/sh', ['-c', 'git -C "$1" archive "$2" apps/macos | tar -x -C "$3"', 'sh', mainCheckout(), commit, work], { stdio: ['ignore', 'ignore', 'pipe'] })
-    } catch (error) {
-      rmSync(work, { recursive: true, force: true })
-      throw new DsdError(`${ref} has no apps/macos (${String(error.stderr ?? error.message).trim()})`)
-    }
-    try { renameSync(work, target) } catch { rmSync(work, { recursive: true, force: true }) }
-  }
-  return { dir: join(target, 'apps', 'macos'), describe: `${ref} (${commit.slice(0, 10)})`, build: commit.slice(0, 10) }
+  return componentSource('macos', choice)
 }
 
 /** The harness version a build reports (its package.json), for the app's CFBundleShortVersionString. */
@@ -81,8 +48,12 @@ function harnessVersion(harnessBuild) {
   try { return JSON.parse(readFileSync(join(harnessBuild, 'package.json'), 'utf8')).version ?? '0.0.0' } catch { return '0.0.0' }
 }
 
-/** Build a throwaway's `DeepSea <V> <hex>.app` into `$TMPDIR/deepsea-app-<id>/`. Returns `{ app, executable, dir, compiled }`. */
-export function buildThrowawayApp(id, { source, harnessBuild }) {
+/**
+ * Build a throwaway's `DeepSea <V> <hex>.app` into `$TMPDIR/deepsea-app-<id>/`. With `entry` (`{ url,
+ * fallbackUrl, tokenFile }`) its entry points are built in, as an installed variant's are, and it is
+ * launched without `--url`. Returns `{ app, executable, dir, compiled }`.
+ */
+export function buildThrowawayApp(id, { source, harnessBuild, entry }) {
   if (process.platform !== 'darwin') throw new DsdError('throwaway apps need macOS (apps/macos)')
   const glyph = join(harnessBuild, 'apps', 'web', 'public', 'favicon.svg')
   if (!existsSync(glyph)) throw new DsdError(`the harness build has no ${glyph}`)
@@ -95,6 +66,7 @@ export function buildThrowawayApp(id, { source, harnessBuild }) {
     out = execFileSync(process.execPath, [join(source.dir, 'build.mjs'),
       '--out', dir, '--name', displayName(id), '--bundle-id', variantName(id), '--glyph', glyph,
       '--glyph-color', THROWAWAY_COLOR, '--version', harnessVersion(harnessBuild), '--build', source.build,
+      ...(entry ? ['--url', entry.url, '--fallback-url', entry.fallbackUrl, '--token-file', entry.tokenFile] : []),
       '--cache', buildsDir()], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 16 * 1024 * 1024 })
   } catch (error) {
     rmSync(dir, { recursive: true, force: true })
@@ -103,12 +75,12 @@ export function buildThrowawayApp(id, { source, harnessBuild }) {
   return { ...JSON.parse(out), dir }
 }
 
-/** Start the app's executable against `url`, with its automation socket. Returns the child process. */
+/** Start the app's executable (against `url`, else its built-in entry points), with its automation socket. Returns the child process. */
 export function launchApp(id, { executable, url, visible }) {
   const socket = appSocketOf(id)
   if (socket.length > SOCKET_PATH_MAX) throw new DsdError(`the automation socket path is too long for macOS (${socket.length} > ${SOCKET_PATH_MAX} bytes): ${socket}; use a shorter DEEPSEA_ROOT`)
   // Downloads stay inside the throwaway, so a test never writes into ~/Downloads.
-  const args = ['--url', url, '--ephemeral', '--automation', socket, '--downloads', join(homeOf(id), 'downloads'), ...(visible ? [] : ['--hidden'])]
+  const args = [...(url ? ['--url', url] : []), '--ephemeral', '--automation', socket, '--downloads', join(homeOf(id), 'downloads'), ...(visible ? [] : ['--hidden'])]
   const child = spawn(executable, args, { detached: true, stdio: 'ignore' })
   return { child, socket, signature: [executable, '--automation'] }
 }

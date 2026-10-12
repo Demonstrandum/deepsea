@@ -1,6 +1,6 @@
 /**
- * dsd __supervise <id> — internal: started detached by `dsd run --throwaway-app
- * --detach`. Watches the throwaway's app once a second and removes the
+ * dsd __supervise <id> — internal: started detached by `dsd run --throwaway
+ * --detach` and `--throwaway-app --detach`. Watches the throwaway's app once a second and removes the
  * throwaway (lib/remove.mjs) as soon as the app has quit, so quitting the app
  * is all a person has to do. The app outlives its server: after a /reboot or
  * /restore the page shows what happened. `dsd stop` ends the supervisor first.
@@ -20,7 +20,7 @@ export async function supervise(argv) {
   for (;;) {
     const state = readState(id)
     if (!state) { say('the throwaway is gone'); return }
-    if (!serverGone && state.pid && !alive(state.pid)) { serverGone = true; say('the server exited; waiting for the app to quit') }
+    if (!serverGone && state.pid && !alive(state.pid)) { serverGone = true; say(`the ${state.relay ? 'relay' : 'server'} exited; waiting for the app to quit`) }
     if (!state.app?.pid || !alive(state.app.pid)) {
       say(`the app quit; removing ${id}`)
       const result = await removeVariant(id)

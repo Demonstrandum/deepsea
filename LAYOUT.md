@@ -196,6 +196,7 @@ include itself.
   app/snapshots/
   relay/<ts>-<pid>.log
   relay/launchd.log                           plist StandardOut/Err only
+  relay/console.log                           a throwaway relay's stdout/err (dsd run --throwaway)
   server/<ts>-<pid>.log                       one per `dsh web` start; 0700 dir, 0600 files (launch token)
   plugins/<name>/<ts>-<pid>.jsonl             one trace per server process
 ~/Library/Logs/io.github.taliesinb.deepsea/   machine-wide (bare root)

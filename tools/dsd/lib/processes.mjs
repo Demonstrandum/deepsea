@@ -48,6 +48,16 @@ export async function stopGroup(pgid, graceMs = 10_000) {
   try { process.kill(-pgid, 'SIGKILL') } catch { /* already gone */ }
 }
 
+/** The pids listening on a TCP port of this machine (lsof; empty when none or lsof is missing). */
+export function listenerPids(port) {
+  try {
+    return execFileSync('/usr/sbin/lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+      .split('\n').filter(Boolean).map(Number)
+  } catch {
+    return []
+  }
+}
+
 /** A port nothing is listening on, on 127.0.0.1. */
 export function freePort() {
   return new Promise((resolve, reject) => {

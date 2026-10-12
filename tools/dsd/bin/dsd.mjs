@@ -5,6 +5,7 @@
 import { execFileSync } from 'node:child_process'
 import { check } from '../commands/check.mjs'
 import { drive } from '../commands/drive.mjs'
+import { logs } from '../commands/logs.mjs'
 import { buildsCommand, gc, link, list, stop } from '../commands/manage.mjs'
 import { run } from '../commands/run.mjs'
 import { script } from '../commands/script.mjs'
@@ -21,10 +22,11 @@ const HELP = `dsd — DeepSea developer CLI (tools/dsd/README.md)
   dsd build <v> [--install [--dock]] [--self]
   dsd run <v> [--no-app]   (an installed named variant)
   dsd remove <v> [--home] [--self]
-  dsd run <variant> --throwaway-app | --throwaway-server [--visible] [--detach] [--scripted] [--plugins <names|all>]
+  dsd run <variant> --throwaway | --throwaway-app | --throwaway-server [--visible] [--detach] [--scripted] [--plugins <names|all>]
           [--app <checkout|ref>] [--patch <file>,…] [--source <ref, e.g. integration/base>] [--harness <ref>] [--ttl <min>] [--keep]
   dsd stop [<variant>] [--keep]
   dsd list [--builds] [--json]
+  dsd logs [<variant>] [app | relay | server | dsd | plugin <name>] [--lines <n>] [--follow] [--export]
   dsd gc [--builds] [--dry-run]
   dsd builds [list | make [<harness ref>]]
   dsd link
@@ -39,7 +41,7 @@ A <variant> reference is a full id, a unique part of a throwaway's hex, or
 nothing when exactly one of your throwaways is running.
 `
 
-const COMMANDS = { new: newVariant, build, remove, run, stop, list, gc, builds: buildsCommand, link, drive, script, worktree, topics, check, __supervise: supervise }
+const COMMANDS = { new: newVariant, build, remove, run, stop, list, logs, gc, builds: buildsCommand, link, drive, script, worktree, topics, check, __supervise: supervise }
 
 /**
  * Warn when this dsd is run inside another checkout of the same repository:

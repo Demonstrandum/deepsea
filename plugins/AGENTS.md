@@ -134,7 +134,10 @@ copies identical.
   browser half, use `--throwaway-app`: the real macOS app, hidden, driven
   with `dsd drive` (wait-page, click, type, eval, describe, snapshot) or a
   `dsd script` (tools/dsd/README.md), so what you check is what the person
-  sees.
+  sees. For anything that depends on the server going away and coming back
+  (`/reboot`, `/restore`, a cold start), use `--throwaway`: the same app
+  behind a relay, as an installed variant runs; `dsd logs <id> server
+  --follow` shows each start.
 - Before calling a topic done, check it beside the others: `dsd topics
   check` (conflicts) and, after `dsd topics integrate`, a throwaway from
   `--source integration/base --plugins all`.

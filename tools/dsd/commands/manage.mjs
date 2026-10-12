@@ -5,6 +5,7 @@ import { existsSync, lstatSync, readdirSync, readlinkSync, rmSync, statSync } fr
 import { join } from 'node:path'
 import { buildPaths, buildReady, buildRecord, ensureBuild, harnessRepo, linkHarness, readLock, resolveHarnessCommit } from '../lib/harness.mjs'
 import { buildsDir, mainCheckout, REPO } from '../lib/paths.mjs'
+import { listening } from '../lib/install.mjs'
 import { runningAs } from '../lib/processes.mjs'
 import { namedStatus, stopNamed } from './variant.mjs'
 import { removeVariant } from '../lib/remove.mjs'
@@ -31,12 +32,19 @@ export async function list(argv) {
   const args = parseArgs(argv)
   onlyFlags(args, ['builds', 'json'])
   const named = new Map()
-  if (!args.builds) for (const v of listVariants()) if (!v.throwaway && v.config?.ports) named.set(v.id, await namedStatus(v.id, v.config))
+  // A throwaway with a relay is running while its relay is; its server comes and goes.
+  const relayOnly = new Set()
+  if (!args.builds) {
+    for (const v of listVariants()) {
+      if (!v.throwaway && v.config?.ports) named.set(v.id, await namedStatus(v.id, v.config))
+      else if (v.running && v.state?.relay && !(await listening(v.state.port))) relayOnly.add(v.id)
+    }
+  }
   const namedLabel = s => !s.installed ? 'not installed' : s.server ? 'running' : s.relay ? 'relay only' : s.job ? 'starting' : 'stopped'
   const rows = args.builds ? builds() : listVariants().map(v => ({
     id: v.id,
     kind: v.throwaway ? 'throwaway' : 'named',
-    status: named.has(v.id) ? namedLabel(named.get(v.id)) : v.running ? 'running' : appAlive(v.state) ? 'app only' : 'stopped',
+    status: named.has(v.id) ? namedLabel(named.get(v.id)) : relayOnly.has(v.id) ? 'relay only' : v.running ? 'running' : appAlive(v.state) ? 'app only' : 'stopped',
     port: named.has(v.id) ? named.get(v.id).port : v.running ? v.state.port : undefined,
     harness: (v.state?.harness ?? v.config?.harness)?.slice(0, 10),
     owner: v.throwaway ? (ownedByCaller(v.config) ? 'me' : (v.config?.ownerSession ?? v.config?.ownerCheckout ?? '?').replace(/^session-/, '').slice(0, 13)) : undefined,
@@ -138,11 +146,13 @@ export async function gc(argv) {
       }
       if (!dry) git(repo, ['worktree', 'prune'])
     }
-    // App compiles and extracted app sources: rebuilt on demand in seconds, so any not used in
-    // the last hour (and not an unfinished build beside them) can go.
+    // App compiles and extracted app and relay sources: rebuilt on demand in seconds, so any not
+    // used in the last hour (and not an unfinished build beside them) can go.
     const hour = Date.now() - 60 * 60_000
+    const inUse = listVariants().filter(v => v.running).map(v => v.state?.relay?.dir).filter(Boolean)
     for (const f of existsSync(buildsDir()) ? readdirSync(buildsDir()) : []) {
-      if (!/^macos-(?:src-)?[0-9a-f]{12}$/.test(f)) continue
+      if (!/^(?:macos-(?:src-)?|relay-src-)[0-9a-f]{12}$/.test(f)) continue
+      if (inUse.some(dir => dir.startsWith(`${join(buildsDir(), f)}/`))) continue
       const dir = join(buildsDir(), f)
       if (statSync(dir).atimeMs > hour || statSync(dir).mtimeMs > hour) continue
       result.builds.push(f)

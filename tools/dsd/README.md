@@ -1,11 +1,11 @@
 # dsd — the DeepSea developer CLI
 
 **Status: stages 1–3 implemented, and part of 4** (shared harness
-builds, `link`, throwaway servers and apps, named variants: `new`, `build
-[--install [--dock]]`, `run`, `stop`, `remove`; `list`, `gc`, `drive`,
-`script`, `worktree`, `topics list | check | integrate`, builds of this
-repository's commits for `run --source`, `check`); everything else below
-(`--throwaway` with a relay, `logs`, `exec`, `topics rebase`) is design. See
+builds, `link`, throwaway servers, apps, and apps behind a relay; named
+variants: `new`, `build [--install [--dock]]`, `run`, `stop`, `remove`;
+`list`, `logs`, `gc`, `drive`, `script`, `worktree`, `topics list | check |
+integrate`, builds of this repository's commits for `run --source`,
+`check`); everything else below (`exec`, `topics rebase`) is design. See
 "Implementation order".
 
 `dsd` builds, runs, inspects and drives DeepSea variants (LAYOUT.md §1), and
@@ -97,6 +97,28 @@ default backups directory (`_backups/<id>/`). WebKit's empty
 Integrity Protection guards them, and macOS clears them with its temporary
 directory.
 
+**Throwaways behind a relay** (`--throwaway`): server, relay and app as an
+installed variant runs them (LAYOUT.md §6), as child processes and with no
+LaunchAgent, LaunchServices registration or Serve path. dsd starts the relay
+(`apps/relay` of the `--source` build, else of this checkout, else extracted
+from `topic/relay` into `_builds/relay-src-<12 hex>/` with `packages/logs`)
+on a free port, with the server's command after `--`; the relay starts `dsh
+web` on the first connection and again after every exit. The app is built
+with the relay as its entry point and fallback and the relay's standing
+token (`<home>/relay/state.json`) as its token file, so its first connection
+is the cold start: the relay's page, then the GUI. The login URL is
+`<relay>/?token=<standing token>`, valid across restarts. dsd treats the
+relay as the throwaway's process (its pid and signature are recorded; the
+server's change on every restart): `list` shows `relay only` while the
+server is down, stopping SIGTERMs the relay, which stops its server's
+process group, and a server whose relay was killed is found by its port
+and stopped too. `dsd drive` reads the server's test-driver endpoint on
+each call and, when the server is down, knocks on the relay and waits for
+the new one, so it follows `/reboot`, `/restore` and crashes. The relay
+gets `--proxy` only when `tailscale` is loaded and a patch gives its row a
+`proxyPort`. Logs: `relay/` (its runs, and `console.log`: its standard
+output and error) and one `server/` file per start.
+
 ## Builds
 
 Variants run immutable builds, one per commit, in `~/.deepsea/_builds/`
@@ -133,10 +155,10 @@ taken over. Build logs: `~/Library/Logs/io.github.taliesinb.deepsea/builds/`.
 | `dsd new <v> [--source <ref>] [--color <hex>] [--plugins <names\|all>] [--no-serve]` | create a named variant: home, `variant.yml` (port block: the first free one; Serve path, stepping aside from another account's), and the home's `logs` / `support` links (LAYOUT.md §4, §7); `--source` defaults to `integration/base` |
 | `dsd build <v> [--install [--dock]] [--self]` | make sure the build of its source commit exists, write its plugin patches, and build its app (`apps/macos`); `--install` installs the app (`~/Applications`), the server host and relay link (Application Support), the relay LaunchAgent (loaded at once; LAYOUT.md §6) and the home's `source` link, and with `--dock` a Dock tile. The server host is replaced only when its signature changes, so privacy grants survive |
 | `dsd remove <v> [--home] [--self]` | uninstall a named variant: its LaunchAgent (stopping relay and server), its own Serve path, Dock tile, app, preferences and `~/Library` leftovers; the home stays unless `--home` |
-| `dsd run <v> [--throwaway \| --throwaway-app \| --throwaway-server] [--visible] [--detach] [--scripted] [--plugins <names\|all>] [--patch <file>,…] [--app <checkout \| ref>] [--source <ref>] [--harness <ref>] [--ttl <min>] [--keep]` | start it, building first if needed (a throwaway always gets plugins/test-driver and plugins/server-log); prints id, home, URL, login URL (with token), pids, log, app path, automation socket. `--source <ref>` runs a build of that commit of this repository (plugins, harness pin, app); `--harness` names a harness commit directly |
+| `dsd run <v> [--throwaway \| --throwaway-app \| --throwaway-server] [--visible] [--detach] [--scripted] [--plugins <names\|all>] [--patch <file>,…] [--app <checkout \| ref>] [--source <ref>] [--harness <ref>] [--ttl <min>] [--keep]` | start it, building first if needed (a throwaway always gets plugins/test-driver and plugins/server-log); prints id, home, URL, login URL (with token), pids, log, app path, automation socket, and with `--throwaway` the relay's pid, port, URL and log. `--source <ref>` runs a build of that commit of this repository (plugins, harness pin, app); `--harness` names a harness commit directly |
 | `dsd stop [<ref>] [--keep]` | stop it: a named variant's relay job is unloaded (relay and server stop; the LaunchAgent stays and starts again at login or with `dsd run`); a throwaway's home, logs and macOS leftovers are removed unless `--keep` |
 | `dsd list [--builds]` | variants, what is running, ports, ids; with `--builds`, the builds and what uses each |
-| `dsd logs <ref> [app \| relay \| server \| plugin <name>] [--follow]` | the current run's log |
+| `dsd logs [<ref>] [app \| relay \| server \| dsd \| plugin <name>] [--lines <n>] [--follow] [--export]` | the current run's log of that kind (its directory's `latest` link; default `server`): the last `--lines` lines (default 100, 0: all), the file's path on standard error; `--follow` prints what is appended and moves on to a newer run when the link does (a relay restarting the server); `--export` copies it into the current directory as `deepsea.<v>-<kind>-<ts>.log` |
 | `dsd gc [--builds] [--dry-run]` | remove throwaways: the caller's own once stopped, another agent's once stopped for an hour, any past its time limit (with macOS leftovers); with `--builds`, also harness builds nothing uses and app compiles not used for an hour |
 | `dsd builds [list \| make [<harness ref>]]` | list builds (harness and deepsea), or make a harness build (default: the pinned commit) |
 | `dsd link` | point this checkout's `harness` at the build of its pinned commit, building it if needed |
@@ -153,7 +175,7 @@ taken over. Build logs: `~/Library/Logs/io.github.taliesinb.deepsea/builds/`.
 | Mode | Runs |
 |---|---|
 | (none) | the installed named variant: loads and starts its relay, then opens its app (`--no-app`: not the app) |
-| `--throwaway` | server, relay and app, as child processes |
+| `--throwaway` | relay, server and app, as child processes (above); lives as `--throwaway-app` does, the relay in the server's place |
 | `--throwaway-app` | server and app (connected straight to the server), no relay; in the foreground until Ctrl-C or the app or server exits, with `--detach` until the app quits or `dsd stop` |
 | `--throwaway-server` | server only: in the foreground until Ctrl-C, SIGTERM or the server's exit, then cleaned up; with `--detach`, until `dsd stop`, or `dsd gc` after `--ttl` minutes (default 120) |
 
@@ -239,7 +261,8 @@ The app's operations (apps/macos/README.md has the protocol):
 | `opened [--clear]` | URLs the app would have opened outside itself: a test build never opens a browser, a sign-in page or Preview, it records them |
 
 A throwaway started with `--throwaway-server` has no app; app operations
-fail with "has no app".
+fail with "has no app". Behind a relay, server operations follow the server
+across restarts (above).
 
 ## Implementation order
 
@@ -252,6 +275,7 @@ fail with "has no app".
 2. `apps/macos` builds, `run --throwaway-app`, the automation socket, the
    app operations of `drive`, `script` (done); the page helpers (test-driver
    browser half) when a topic needs them.
-3. Named variants: `new`, `build --install`, `run`, `stop`, `remove` (done).
+3. Named variants: `new`, `build --install`, `run`, `stop`, `remove`;
+   `run --throwaway` with the relay; `logs` (done).
 4. `topics check | integrate` and `run --source` from deepsea builds (done);
    `topics rebase`, `exec` (commands in a build with a throwaway home).
