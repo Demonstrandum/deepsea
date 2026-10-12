@@ -21,6 +21,9 @@ topic topic/fix-scroll-pin
 # DeepSea identity: default home ~/.deepsea/release
 topic topic/deepsea-home
 
+# Launch: a stable launch token for a relay that starts the server
+topic topic/launch-token
+
 # Shell and client behaviour
 topic topic/darwin-web-shortcuts
 topic topic/modal-width
