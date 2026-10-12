@@ -7,4 +7,4 @@
 #   commit  the pinned commit
 url ../deepsea-harness
 branch integration/dsh-v0.2.1-alpha.1
-commit 69a377aca2b8d7451e88905bd3ac941524a2e1da
+commit 8be94005fb4fcc200415d0a98126c0ec14badcf8

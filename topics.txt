@@ -43,11 +43,15 @@ topic topic/title-slug
 topic topic/embed-session
 topic topic/session-relocation
 topic topic/workspace-destinations topic/session-relocation
+topic topic/command-session topic/workspace-destinations
 
 # Sign-in routes, billing metadata, the Models panel
 topic topic/pi-ai-oauth-routes
 topic topic/billing-metadata topic/pi-ai-oauth-routes
 topic topic/settings-models-signins topic/billing-metadata
+topic topic/model-catalog-capabilities topic/settings-models-signins
+topic topic/model-picker-sections topic/model-catalog-capabilities
+topic topic/model-picker-recent topic/model-picker-sections
 
 [deepsea]
 base topic/base
