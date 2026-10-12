@@ -53,8 +53,14 @@ developer CLI, `dsd`), `tools/` (bootstrap and uninstall),
 Both this repository and the harness fork are kept as **topic branches**:
 
 - A topic is one feature or one tight cluster of related plugins, on its own
-  branch `topic/<name>`, based on its parent (`topic/base` here; an upstream
-  release tag or another topic in the harness).
+  branch `topic/<name>`, based on its parent: `topic/base`, or another topic
+  (stacked).
+- Each repository has a baseline, its `topic/base`, which every integration
+  starts from. In the harness it is the upstream release plus what every
+  DeepSea variant always has (no Web preview notice); a change that belongs
+  in every variant and every throwaway goes there, not into a topic. Moving
+  to a new upstream release is rebasing the harness `topic/base` onto it,
+  then its topics.
 - `topics.txt` lists the harness topics in merge order with their parents.
   This repository's topics are simply its `topic/*` branches: a topic
   declares the harness topics it needs in its plugins' package.json
@@ -64,7 +70,7 @@ Both this repository and the harness fork are kept as **topic branches**:
 - `dsd topics check` merges every pair of topics and each repository's
   whole integration in memory, without touching a working tree, and reports
   conflicts. `dsd topics integrate` rebuilds the integration branches,
-  `integration/<harness base>` in the harness and `integration/base` here,
+  `integration/<upstream>` in the harness and `integration/base` here,
   by merging the topics in order; `dsd run <v> --source integration/base`
   runs everything together. Regenerating generated files (lockfiles,
   notices, translation records) at integration is not built yet.

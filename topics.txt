@@ -1,17 +1,24 @@
 # DeepSea topic branches.
 #
-#   [harness]  the DSH fork (the repository harness.lock names): its topics
-#              in merge order, a stacked topic after its parent
+#   [harness]  the DSH fork (the repository harness.lock names): the upstream
+#              release it follows, its baseline, and its topics in merge
+#              order, a stacked topic after its parent
 #   [deepsea]  this repository: only its base. Its topics are its topic/*
 #              branches, each declaring the harness topics it needs in its
 #              plugins' package.json ("deepsea": { "requires": [...] }), so
 #              starting a topic edits nothing here. See `dsd topics`.
 #
-#   base <ref>                          what a topic without a parent is based on
+#   upstream <tag>                      the upstream release (harness only); names
+#                                       the integration branch, integration/<tag>
+#   base <ref>                          what a topic without a parent is based on;
+#                                       every integration starts from it
 #   topic <branch> [<parent topic>]
 
 [harness]
-base dsh-v0.2.1-alpha.1
+upstream dsh-v0.2.1-alpha.1
+# The baseline every integration starts from: upstream plus what every
+# DeepSea variant always has (no Web preview notice).
+base topic/base
 
 # Fixes
 topic topic/fix-scheduler-symbol

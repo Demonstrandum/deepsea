@@ -10,8 +10,9 @@
  * `check` merges in memory (lib/integrate.mjs): every pair of topics of each
  * repository, and each repository's full integration, reporting conflicts
  * and missing requirements. `integrate` builds the integration branches,
- * `integration/<harness base>` in the harness repository and
- * `integration/base` here (topic/base, then every topic in name order), and
+ * `integration/<upstream>` in the harness repository (its baseline
+ * topic/base, then its topics in order) and `integration/base` here
+ * (topic/base, then every topic in name order), and
  * moves them only when every merge succeeded. Run a throwaway on the result
  * with `dsd run <v> --source integration/base`.
  */
@@ -30,10 +31,11 @@ export function parseTopics(text) {
     const line = raw.replace(/#.*$/, '').trim()
     if (!line) continue
     const header = /^\[([a-z]+)\]$/.exec(line)
-    if (header) { section = sections[header[1]] = { base: undefined, topics: [] }; continue }
+    if (header) { section = sections[header[1]] = { base: undefined, upstream: undefined, topics: [] }; continue }
     const [kind, name, parent] = line.split(/\s+/)
     if (!section) continue
     if (kind === 'base') section.base = name
+    else if (kind === 'upstream') section.upstream = name
     else if (kind === 'topic') section.topics.push({ name, parent })
   }
   return sections
@@ -80,7 +82,7 @@ export const DEEPSEA_INTEGRATION = 'integration/base'
 function integrations(sections, deepseaRows) {
   const harness = sections.harness
   return [
-    { repo: 'harness', path: harnessRepo(readLock()), base: harness.base, branch: `integration/${harness.base}`, topics: harness.topics.map(t => t.name) },
+    { repo: 'harness', path: harnessRepo(readLock()), base: harness.base, branch: `integration/${harness.upstream ?? harness.base}`, topics: harness.topics.map(t => t.name) },
     { repo: 'deepsea', path: mainCheckout(), base: sections.deepsea?.base ?? 'topic/base', branch: DEEPSEA_INTEGRATION, topics: deepseaRows.map(r => `topic/${r.topic}`).sort() },
   ]
 }

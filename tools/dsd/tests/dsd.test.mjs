@@ -127,11 +127,11 @@ test('gc: own stopped throwaways go; another agent\'s only after an hour; expire
   }
 })
 
-test('topics.txt: sections, bases and topics with parents', async () => {
+test('topics.txt: sections, upstream, bases and topics with parents', async () => {
   const { parseTopics } = await import('../commands/topics.mjs')
-  assert.deepEqual(parseTopics('# c\n[harness]\nbase v1 # tag\ntopic topic/a\ntopic topic/b topic/a\n\n[deepsea]\nbase topic/base\n'), {
-    harness: { base: 'v1', topics: [{ name: 'topic/a', parent: undefined }, { name: 'topic/b', parent: 'topic/a' }] },
-    deepsea: { base: 'topic/base', topics: [] },
+  assert.deepEqual(parseTopics('# c\n[harness]\nupstream v1 # tag\nbase topic/base\ntopic topic/a\ntopic topic/b topic/a\n\n[deepsea]\nbase topic/base\n'), {
+    harness: { base: 'topic/base', upstream: 'v1', topics: [{ name: 'topic/a', parent: undefined }, { name: 'topic/b', parent: 'topic/a' }] },
+    deepsea: { base: 'topic/base', upstream: undefined, topics: [] },
   })
 })
 
