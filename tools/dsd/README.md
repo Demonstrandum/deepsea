@@ -258,7 +258,7 @@ The app's operations (apps/macos/README.md has the protocol):
 | `describe <css> [--nth <n>]` | the element inspector's record: selector, rect, text, HTML, accessibility, styles, slots, React chain, ancestors, children |
 | `snapshot <css>`, `snapshot --window [--chrome]` | an element snapshot (element, page with it outlined, record) or the page; files under the app's log directory, images by content hash |
 | `window-info`, `app-log [--lines <n>]`, `quit` | the window's frame, screen and modes; the run log; quit (which removes the throwaway) |
-| `opened [--clear]` | URLs the app would have opened outside itself: a test build never opens a browser, a sign-in page or Preview, it records them |
+| `opened [--clear]` | URLs the app opened, or would have, outside itself: a hidden test build never opens a browser, a sign-in page or Preview, it records them |
 
 A throwaway started with `--throwaway-server` has no app; app operations
 fail with "has no app". Behind a relay, server operations follow the server
