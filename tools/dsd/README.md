@@ -1,10 +1,12 @@
 # dsd — the DeepSea developer CLI
 
-**Status: stages 1 and 2 implemented, and part of 4** (shared harness
-builds, `link`, throwaway servers and apps, `stop`, `list`, `gc`, `drive`,
+**Status: stages 1–3 implemented, and part of 4** (shared harness
+builds, `link`, throwaway servers and apps, named variants: `new`, `build
+[--install [--dock]]`, `run`, `stop`, `remove`; `list`, `gc`, `drive`,
 `script`, `worktree`, `topics list | check | integrate`, builds of this
-repository's commits for `run --source`, `check`); everything else below is
-design. See "Implementation order".
+repository's commits for `run --source`, `check`); everything else below
+(`--throwaway` with a relay, `logs`, `exec`, `topics rebase`) is design. See
+"Implementation order".
 
 `dsd` builds, runs, inspects and drives DeepSea variants (LAYOUT.md §1), and
 runs the topic-branch workflow. It is a command-line program for developers
@@ -33,10 +35,16 @@ id: personal
 display: DeepSea Personal        # derived; "DeepSea" for release
 color: "#30A46C"                 # app glyph and title tint
 ports: 3210                      # first port of its block (LAYOUT.md §7)
-source: topic/base               # a commit or ref, run as an immutable build
+source: integration/base         # a commit or ref, run as an immutable build
 plugins: all                     # or a list of plugin names
-serve: true                      # Tailscale Serve path /deepsea-personal/
+serve: true                      # Tailscale is available: the variant has a Serve path
+servePath: /deepsea-personal     # chosen by dsd new (LAYOUT.md §7)
+build: 2cb0966d55                # written by build --install: the commit installed
 ```
+
+`plugins: all` on a named variant means every plugin of its build,
+machine-wide ones included, except the test-only `test-driver` and
+`scripted-model`; `server-log` is always first.
 
 **Throwaway variants** (`--throwaway…`) are copies of a named variant's
 configuration with a fresh id `<parent>-<hex>` and an empty home. They take
@@ -122,10 +130,11 @@ taken over. Build logs: `~/Library/Logs/io.github.taliesinb.deepsea/builds/`.
 
 | Command | Does |
 |---|---|
-| `dsd new <v> [--from <v>] [--color <hex>] [--source <ref>]` | create a named variant: home, `variant.yml`, port block, and the home's `logs` / `support` / `source` links (LAYOUT.md §4) |
-| `dsd build <v> [--install [--dock] \| --throwaway]` | make sure the build of its source exists, then build its app and server host (`apps/macos`); `--install` installs them, the relay (`apps/relay`) and its LaunchAgent (LAYOUT.md §6), and with `--dock` a Dock tile; `--throwaway` builds the apps into a temporary directory |
+| `dsd new <v> [--source <ref>] [--color <hex>] [--plugins <names\|all>] [--no-serve]` | create a named variant: home, `variant.yml` (port block: the first free one; Serve path, stepping aside from another account's), and the home's `logs` / `support` links (LAYOUT.md §4, §7); `--source` defaults to `integration/base` |
+| `dsd build <v> [--install [--dock]] [--self]` | make sure the build of its source commit exists, write its plugin patches, and build its app (`apps/macos`); `--install` installs the app (`~/Applications`), the server host and relay link (Application Support), the relay LaunchAgent (loaded at once; LAYOUT.md §6) and the home's `source` link, and with `--dock` a Dock tile. The server host is replaced only when its signature changes, so privacy grants survive |
+| `dsd remove <v> [--home] [--self]` | uninstall a named variant: its LaunchAgent (stopping relay and server), its own Serve path, Dock tile, app, preferences and `~/Library` leftovers; the home stays unless `--home` |
 | `dsd run <v> [--throwaway \| --throwaway-app \| --throwaway-server] [--visible] [--detach] [--scripted] [--plugins <names\|all>] [--patch <file>,…] [--app <checkout \| ref>] [--source <ref>] [--harness <ref>] [--ttl <min>] [--keep]` | start it, building first if needed (a throwaway always gets plugins/test-driver and plugins/server-log); prints id, home, URL, login URL (with token), pids, log, app path, automation socket. `--source <ref>` runs a build of that commit of this repository (plugins, harness pin, app); `--harness` names a harness commit directly |
-| `dsd stop [<ref>] [--keep]` | stop it; a throwaway's home, logs and macOS leftovers are removed unless `--keep` |
+| `dsd stop [<ref>] [--keep]` | stop it: a named variant's relay job is unloaded (relay and server stop; the LaunchAgent stays and starts again at login or with `dsd run`); a throwaway's home, logs and macOS leftovers are removed unless `--keep` |
 | `dsd list [--builds]` | variants, what is running, ports, ids; with `--builds`, the builds and what uses each |
 | `dsd logs <ref> [app \| relay \| server \| plugin <name>] [--follow]` | the current run's log |
 | `dsd gc [--builds] [--dry-run]` | remove throwaways: the caller's own once stopped, another agent's once stopped for an hour, any past its time limit (with macOS leftovers); with `--builds`, also harness builds nothing uses and app compiles not used for an hour |
@@ -143,7 +152,7 @@ taken over. Build logs: `~/Library/Logs/io.github.taliesinb.deepsea/builds/`.
 
 | Mode | Runs |
 |---|---|
-| (none) | the installed named variant: its LaunchAgent and app |
+| (none) | the installed named variant: loads and starts its relay, then opens its app (`--no-app`: not the app) |
 | `--throwaway` | server, relay and app, as child processes |
 | `--throwaway-app` | server and app (connected straight to the server), no relay; in the foreground until Ctrl-C or the app or server exits, with `--detach` until the app quits or `dsd stop` |
 | `--throwaway-server` | server only: in the foreground until Ctrl-C, SIGTERM or the server's exit, then cleaned up; with `--detach`, until `dsd stop`, or `dsd gc` after `--ttl` minutes (default 120) |
@@ -243,6 +252,6 @@ fail with "has no app".
 2. `apps/macos` builds, `run --throwaway-app`, the automation socket, the
    app operations of `drive`, `script` (done); the page helpers (test-driver
    browser half) when a topic needs them.
-3. Named variants: `new`, `build --install`, `run`.
+3. Named variants: `new`, `build --install`, `run`, `stop`, `remove` (done).
 4. `topics check | integrate` and `run --source` from deepsea builds (done);
    `topics rebase`, `exec` (commands in a build with a throwaway home).

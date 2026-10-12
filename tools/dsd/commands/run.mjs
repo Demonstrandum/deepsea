@@ -27,6 +27,7 @@ import { spawn } from 'node:child_process'
 import { join, resolve } from 'node:path'
 import { appSocketOf, appSource, buildThrowawayApp, launchApp, waitAppReady } from '../lib/app.mjs'
 import { ensureSourceBuild, resolveSourceCommit } from '../lib/source.mjs'
+import { runNamed } from './variant.mjs'
 import { buildPaths, ensureBuild, harnessRepo, linkHarness, readLock, resolveHarnessCommit } from '../lib/harness.mjs'
 import { openRunLog } from '../lib/logs.mjs'
 import { preparePlugin, selectPlugins, writePluginPatches } from '../lib/plugins.mjs'
@@ -74,13 +75,7 @@ function newThrowawayId(parent) {
   }
 }
 
-/** The welcome-notice version the build's client asks about, so a fresh home does not open on it. */
-function welcomeNoticeVersion(build) {
-  const file = join(build, 'packages/client/ui-settings-models/src/onboarding-copy.ts')
-  return existsSync(file) ? /WELCOME_NOTICE_VERSION\s*=\s*'([^']+)'/.exec(readFileSync(file, 'utf8'))?.[1] : undefined
-}
-
-/** Create the throwaway's home: configuration, profile patch, settings, links. */
+/** Create the throwaway's home: configuration, profile patch, links. */
 function makeHome(id, { parent, commit, build, expires, scripted, mode, source }) {
   const home = homeOf(id)
   mkdirSync(join(home, 'profiles', 'web'), { recursive: true, mode: 0o700 })
@@ -88,8 +83,6 @@ function makeHome(id, { parent, commit, build, expires, scripted, mode, source }
   writeVariant(id, { id, parent, throwaway: true, mode, harness: commit, ...(source ? { source: `${source.ref} (${source.commit.slice(0, 10)})` } : {}), created: isoLocal(),
     ownerSession: owner.session, ownerCheckout: owner.checkout, expires })
   writeFileSync(join(home, 'profiles', 'web', 'cordis.patch.yml'), profilePatch(home) + (scripted ? SCRIPTED_PATCH : ''), { mode: 0o600 })
-  const notice = welcomeNoticeVersion(build)
-  if (notice) writeFileSync(join(home, 'settings.yaml'), `ui-onboarding:\n  welcomeNoticeVersion: '${notice}'\n`, { mode: 0o600 })
   mkdirSync(logDirOf(id), { recursive: true, mode: 0o700 })
   symlinkSync(logDirOf(id), join(home, 'logs'))
   symlinkSync(source?.dir ?? build, join(home, 'source'))
@@ -122,7 +115,7 @@ function tail(path, lines) {
 
 export async function run(argv) {
   const args = parseArgs(argv, ['source', 'harness', 'timeout', 'plugins', 'ttl', 'app', 'patch'])
-  onlyFlags(args, ['throwaway', 'throwaway-app', 'throwaway-server', 'detach', 'source', 'harness', 'keep', 'timeout', 'plugins', 'ttl', 'scripted', 'visible', 'app', 'patch'])
+  onlyFlags(args, ['throwaway', 'throwaway-app', 'throwaway-server', 'detach', 'source', 'harness', 'keep', 'timeout', 'plugins', 'ttl', 'scripted', 'visible', 'app', 'patch', 'no-app'])
   const extraPatches = typeof args.patch === 'string' ? args.patch.split(',').filter(Boolean).map(f => resolve(f)) : []
   for (const file of extraPatches) if (!existsSync(file)) usage(`--patch: no file ${file}`)
   const parent = args._[0]
@@ -130,9 +123,8 @@ export async function run(argv) {
   checkNamedId(parent)
   const mode = args['throwaway-app'] ? 'app' : args['throwaway-server'] ? 'server' : undefined
   if (mode === undefined) {
-    throw new DsdError(args.throwaway
-      ? '--throwaway (server, relay and app) needs the relay, which comes with the tailscale plugin; use --throwaway-app or --throwaway-server'
-      : 'running a named variant is not built yet; use --throwaway-app or --throwaway-server')
+    if (args.throwaway) throw new DsdError('--throwaway (server, relay and app) is not built yet; use --throwaway-app or --throwaway-server')
+    return runNamed(parent, args)
   }
   if (args['throwaway-app'] && args['throwaway-server']) usage('--throwaway-app and --throwaway-server are alternatives')
   if (mode === 'server' && (args.visible || args.app)) usage('--visible and --app are for --throwaway-app')

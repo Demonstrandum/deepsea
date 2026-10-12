@@ -35,13 +35,14 @@ export function allPlugins(root = REPO) {
 }
 
 /**
- * The plugins a `--plugins` value selects: names, or `all` (which leaves
- * machine-wide plugins out; naming one includes it).
+ * The plugins a `--plugins` value selects: names, or `all` (which, for a
+ * throwaway, leaves machine-wide plugins out; naming one includes it).
  */
-export function selectPlugins(value, root = REPO) {
+export function selectPlugins(value, root = REPO, { machineWide = false } = {}) {
   if (value === undefined || value === true) return []
   if (value === 'all') {
     const picked = allPlugins(root).map(name => describe(name, root))
+    if (machineWide) return picked
     const skipped = picked.filter(p => p.machineWide)
     if (skipped.length) note(`leaving out machine-wide plugins (name them to include): ${skipped.map(p => `${p.name} (${p.machineWide})`).join(', ')}`)
     return picked.filter(p => !p.machineWide)

@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { buildPaths, buildReady, buildRecord, ensureBuild, harnessRepo, linkHarness, readLock, resolveHarnessCommit } from '../lib/harness.mjs'
 import { buildsDir, mainCheckout, REPO } from '../lib/paths.mjs'
 import { runningAs } from '../lib/processes.mjs'
+import { namedStatus, stopNamed } from './variant.mjs'
 import { removeVariant } from '../lib/remove.mjs'
 import { git, onlyFlags, parseArgs, printJson, usage } from '../lib/util.mjs'
 import { lastActivity, listVariants, ownedByCaller, resolveRef } from '../lib/variants.mjs'
@@ -13,9 +14,10 @@ import { lastActivity, listVariants, ownedByCaller, resolveRef } from '../lib/va
 /** dsd stop [<ref>] [--keep] */
 export async function stop(argv) {
   const args = parseArgs(argv)
-  onlyFlags(args, ['keep'])
+  onlyFlags(args, ['keep', 'self'])
   if (args._.length > 1) usage('dsd stop [<variant>] [--keep]')
   const variant = resolveRef(args._[0])
+  if (!variant.throwaway) return stopNamed(variant.id, args)
   printJson(await removeVariant(variant.id, { keep: Boolean(args.keep) }))
 }
 
@@ -28,15 +30,18 @@ function appAlive(state) {
 export async function list(argv) {
   const args = parseArgs(argv)
   onlyFlags(args, ['builds', 'json'])
+  const named = new Map()
+  if (!args.builds) for (const v of listVariants()) if (!v.throwaway && v.config?.ports) named.set(v.id, await namedStatus(v.id, v.config))
+  const namedLabel = s => !s.installed ? 'not installed' : s.server ? 'running' : s.relay ? 'relay only' : s.job ? 'starting' : 'stopped'
   const rows = args.builds ? builds() : listVariants().map(v => ({
     id: v.id,
     kind: v.throwaway ? 'throwaway' : 'named',
-    status: v.running ? 'running' : appAlive(v.state) ? 'app only' : 'stopped',
-    port: v.running ? v.state.port : undefined,
+    status: named.has(v.id) ? namedLabel(named.get(v.id)) : v.running ? 'running' : appAlive(v.state) ? 'app only' : 'stopped',
+    port: named.has(v.id) ? named.get(v.id).port : v.running ? v.state.port : undefined,
     harness: (v.state?.harness ?? v.config?.harness)?.slice(0, 10),
     owner: v.throwaway ? (ownedByCaller(v.config) ? 'me' : (v.config?.ownerSession ?? v.config?.ownerCheckout ?? '?').replace(/^session-/, '').slice(0, 13)) : undefined,
     expires: v.config?.expires,
-    url: v.running ? v.state.url : undefined,
+    url: named.has(v.id) ? (v.config.servePath ? `${v.config.servePath}/` : `http://127.0.0.1:${Number(v.config.ports) + 3}/`) : v.running ? v.state.url : undefined,
   }))
   if (args.json) return printJson(rows)
   if (rows.length === 0) return void process.stdout.write(args.builds ? 'no builds\n' : 'no variants\n')

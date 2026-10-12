@@ -203,3 +203,23 @@ test('integration: merges in order, reuses unchanged merges, stops at a conflict
     assert.throws(() => moveBranch(repo, 'integration/main', first.tip), /uncommitted changes/)
   } finally { rmSync(repo, { recursive: true, force: true }) }
 })
+
+test('install: the relay plist, Serve path choice (stepping aside), Dock entries', async () => {
+  const { chooseServePath, dockHas, dockTile, relayPlist } = await import('../lib/install.mjs')
+  const plist = relayPlist({ label: 'io.github.taliesinb.deepsea.lab.relay', programArguments: ['/a/host', '/a/node', 'x&y'], launchdLog: '/l/launchd.log' })
+  assert.match(plist, /<key>Label<\/key><string>io\.github\.taliesinb\.deepsea\.lab\.relay<\/string>/)
+  assert.match(plist, /<string>\/a\/host<\/string>\n {4}<string>\/a\/node<\/string>\n {4}<string>x&amp;y<\/string>/)
+  assert.match(plist, /<key>KeepAlive<\/key><true\/>/)
+  assert.doesNotMatch(plist, /EnvironmentVariables/)
+  const none = { mappings: {} }
+  assert.equal(chooseServePath('release', 3200, none, 'me'), '/deepsea')
+  assert.equal(chooseServePath('lab', 3210, none, 'me'), '/deepsea-lab')
+  // Ours (pointing at this variant's relay) is not "taken"; another target is.
+  assert.equal(chooseServePath('lab', 3210, { mappings: { '/deepsea-lab': 'http://127.0.0.1:3213' } }, 'me'), '/deepsea-lab')
+  assert.equal(chooseServePath('lab', 3210, { mappings: { '/deepsea-lab': 'http://127.0.0.1:3203' } }, 'Me.Two'), '/deepsea-lab-me-two')
+  assert.throws(() => chooseServePath('lab', 3210, { mappings: { '/deepsea-lab': 'http://127.0.0.1:3203', '/deepsea-lab-me': 'http://127.0.0.1:3303' } }, 'me'), /both taken/)
+  const tile = dockTile('/Users/USER/Applications/DeepSea Lab.app')
+  assert.match(tile, /file:\/\/\/Users\/USER\/Applications\/DeepSea%20Lab\.app\//)
+  assert.equal(dockHas(`<plist>${tile}</plist>`, '/Users/USER/Applications/DeepSea Lab.app'), true)
+  assert.equal(dockHas('<plist></plist>', '/Users/USER/Applications/DeepSea Lab.app'), false)
+})
