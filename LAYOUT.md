@@ -281,9 +281,10 @@ launchd ── <variant name>.relay (RunAtLoad, KeepAlive)
   that page.
 - Clients on this machine (the app's fallback URL) reach `dsh web` through
   the relay. The relay keeps a standing token in `<home>/relay/state.json`
-  (0600; the app's token file); `/?token=<standing token>` is exchanged for
-  `dsh web`'s own launch token, after which DSH's own browser cookie admits
-  the client, across restarts.
+  (0600; the app's token file) and starts `dsh web` with it as its launch
+  token (`DSH_LAUNCH_TOKEN`, harness topic `launch-token`), so
+  `/?token=<standing token>` always logs in and DSH's own browser cookie
+  then admits the client, across restarts.
 - Clients on the tailnet come through Tailscale Serve to the relay, which
   hands them to the tailscale plugin's proxy on the block's +4: Tailscale
   identity, the proxy's own token and cookie (per variant:
