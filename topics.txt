@@ -35,6 +35,7 @@ topic topic/launch-token
 topic topic/darwin-web-shortcuts
 topic topic/modal-width
 topic topic/input-triggers
+topic topic/trigger-label-segments topic/input-triggers
 topic topic/command-claim-decoration
 topic topic/title-slug
 
