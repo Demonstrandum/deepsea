@@ -53,11 +53,12 @@ Contracts between plugins, so plugins ported separately agree:
 | Contract | Provided by | Used by |
 |---|---|---|
 | service `deepseaBilling` (session snapshots) | `billing` | (tests) |
-| service `deepseaTailscaleRelay` (relay status, restart) | `tailscale` | `reboot` |
+| environment `DEEPSEA_RELAY` (the URL of the relay that started this server; absent without one) | the relay (`apps/relay`) | `reboot`, `backup-restore`, `tailscale` |
 | service `deepseaSessionOwners` (which login drives which session) | `tailscale` | `billing` |
 | service `deepseaRemoteWorkspaces` (remote session rows) | `remote-workspaces` (browser half) | `numbered-switching` |
-| headers `x-deepsea-tailscale: 1`, `x-deepsea-tailscale-self: 1` on proxied requests | `tailscale` | `import-sessions` |
-| header `X-DeepSea-Forward-Error` (loopback forward refusals) | `tailscale` | the macOS app |
+| headers `x-deepsea-tailscale: 1`, `x-deepsea-tailscale-self: 1`, `x-deepsea-tailscale-admitted: user\|cookie\|public`, `x-deepsea-tailscale-login: <login>` on proxied requests | `tailscale` | `import-sessions` (the first two); the plugin itself |
+| header `x-deepsea-relay: starting\|failed` on the relay's 503 while `dsh web` starts | the relay | the macOS app (shows the relay's page), `reboot` |
+| route `<serve path>/api/deepsea-tailscale/loopback-forward?port=<n>` (WebSocket) and its refusal header `X-DeepSea-Forward-Error` | `tailscale` | the macOS app |
 | attribute `data-deepsea-remote-session` on remote session rows | `remote-workspaces` | `numbered-switching` |
 | page global `__DEEPSEA_SESSION_TITLE_SLUG__` (`{ parseSlug }`) | `session-title-slug` | `remote-workspaces` (slug previews on its New Session rows) |
 

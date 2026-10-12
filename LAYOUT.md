@@ -23,7 +23,7 @@ One string names a variant everywhere: its **variant name**
 | Backups | `~/.deepsea/_backups/release/` | `~/.deepsea/_backups/<v>/` |
 | Display name | **`DeepSea`** | `DeepSea <V>` (title case: `DeepSea Personal`) |
 | Native app / server host | `DeepSea.app`, `DeepSea Server.app` | `DeepSea <V>.app`, `DeepSea <V> Server.app` |
-| Tailscale Serve path | **`/deepsea/`** | `/deepsea-<v>/` |
+| Tailscale Serve path (default; §7) | **`/deepsea/`** | `/deepsea-<v>/` |
 
 **Rule: what a person reads or types leaves `release` out** (the display
 name, the app's file name, the Tailscale URL); everything else carries it.
@@ -60,7 +60,7 @@ Code-level names:
 | Plugin package | `@deepsea/<name>` (also the client bundle's module id) |
 | Loader row id | `deepsea-<name>` (prefixed so it never collides with an upstream row) |
 | Page globals set by the native app | `__DEEPSEA_APP__` (identity, `openExternal`, view mode) |
-| Environment variables of our own | `DEEPSEA_VARIANT`, `DEEPSEA_ROOT` (default `~/.deepsea`), `DEEPSEA_LOG_ROOT`, `DEEPSEA_WORKTREES` |
+| Environment variables of our own | `DEEPSEA_VARIANT`, `DEEPSEA_ROOT` (default `~/.deepsea`), `DEEPSEA_LOG_ROOT`, `DEEPSEA_WORKTREES`; `DEEPSEA_RELAY` (set by the relay for the `dsh web` it starts: the relay's URL) |
 | Temporary files | `$TMPDIR/deepsea-<component>-…` (never bare `/tmp`) |
 | Settings section labels | the plain name of the service or feature ("Tailscale"), never a description of it |
 
@@ -127,6 +127,7 @@ AGENTS.md          how agents work here (start here)
 LAYOUT.md          this file
 topics.txt         the harness topics and their order (this repository's topics are its branches)
 apps/macos/        native app, server host, window helper (Swift)
+apps/relay/        the relay every installed variant runs (§6; Node, no dependencies)
 apps/linux/        Electron client
 plugins/<name>/    one installable package per plugin; plugins/AGENTS.md
 packages/<name>/   code shared by plugins and tools (`@deepsea/<name>`, no dependencies)
@@ -252,15 +253,53 @@ run. A file's identity is its first line:
 ~/Library/Application Support/io.github.taliesinb.deepsea/
   DeepSea Window Helper.app                 machine-wide
 ~/Library/LaunchAgents/<variant name>.relay.plist
+~/Applications/DeepSea[ <V>].app            the app (§1); a Dock tile only with `dsd build --install --dock`
 ```
 
 Throwaway variants install nothing here: `dsd` runs their apps and relay as
 child processes from a temporary build directory, with no LaunchAgent and no
 LaunchServices registration.
 
+**How an installed variant runs.** Installing is `dsd`'s job (`dsd build <v>
+--install`); a plugin never installs or reinstalls anything machine-wide, so
+no button can take down the server it runs in.
+
+```
+launchd ── <variant name>.relay (RunAtLoad, KeepAlive)
+  └─ DeepSea[ <V>] Server.app   server host: spawns its arguments, forwards signals; macOS
+     │                          charges privacy prompts of everything below to this bundle
+     └─ deepsea-relay <build>/apps/relay/relay.mjs     always listening on the block's +3
+        └─ dsh web (the variant's build, through the login shell, so agents get the
+                    person's PATH), started on the first connection, restarted by the relay
+```
+
+- The LaunchAgent and the server host name the build path itself, never
+  `<home>/source` (nothing outside the home depends on the home's links).
+- The relay (`apps/relay`) is part of every installed variant, with or
+  without the tailscale plugin. While `dsh web` starts it answers 503 with
+  `x-deepsea-relay: starting` and a page that reloads itself; the app shows
+  that page.
+- Clients on this machine (the app's fallback URL) reach `dsh web` through
+  the relay. The relay keeps a standing token in `<home>/relay/state.json`
+  (0600; the app's token file); `/?token=<standing token>` is exchanged for
+  `dsh web`'s own launch token, after which DSH's own browser cookie admits
+  the client, across restarts.
+- Clients on the tailnet come through Tailscale Serve to the relay, which
+  hands them to the tailscale plugin's proxy on the block's +4: Tailscale
+  identity, the proxy's own token and cookie (per variant:
+  `deepsea-tailscale-<v>`, `Path=<serve path>`). Without the plugin, tailnet
+  requests are refused.
+
 ## 7. Network
 
-- Tailscale Serve paths as in §1.
+- Tailscale Serve paths default to §1's. On a Mac with several accounts the
+  paths and ports are machine-wide: `dsd new` records each variant's port
+  block and Serve path in its `variant.yml`, picks the first free block (no
+  listener on any of its ten ports, no other variant of this account
+  recording it), and when another account already serves the default path
+  uses `/deepsea-<user>/` (release) or `/deepsea-<v>-<user>/`. The tailscale
+  plugin never replaces a Serve mapping it does not own (one whose target is
+  not this variant's relay).
 - Ports: each variant gets a block of ten from 3200 (`release`: 3200, then 3210,
   3220, …), clear of a stock DSH on 3080-31xx: `dsh web` on the block's first
   port, relay on `+3`, Tailscale proxy on `+4`. The block is recorded in the
