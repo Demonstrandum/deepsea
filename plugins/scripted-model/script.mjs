@@ -3,7 +3,7 @@
  * responses. Pure: no harness imports, so it is testable on its own.
  */
 
-/** The reply to a prompt that is not a script (does not start with `{`). */
+/** The reply to a prompt that is not a script and not a plain command. */
 export const ORDERS_REPLY = "Awaiting orders, m'lord"
 
 /** The reply once a script that ended in tool calls has nothing left to say. */
@@ -41,6 +41,53 @@ const SCHEMA = {
   error: { kind: [v => Object.hasOwn(ERROR_KINDS, v), true, `one of ${Object.keys(ERROR_KINDS).join(', ')}`], message: [isNonEmptyString, false, 'a non-empty string'], status: [v => Number.isInteger(v) && v >= 100 && v <= 599, false, 'an HTTP status from 100 to 599'], retryAfter: [v => typeof v === 'number' && v > 0 && v <= 3600, false, 'seconds above 0, at most 3600'], times: [isPositiveInt, false, 'a whole number ≥ 1'] },
   end: { reason: [v => v === 'stop' || v === 'max-tokens', false, 'stop or max-tokens'] },
   title: { text: [isNonEmptyString, true, 'a non-empty string'] },
+}
+
+/** What each command does, for `help`. */
+const PURPOSE = {
+  say: 'a text block, streamed in `chunks` pieces `chunkDelay` s apart',
+  think: 'a reasoning block, as `say`',
+  tool: 'a tool call; consecutive `tool` lines are one response, and the script continues after the results',
+  expect: 'checks a result of the tool calls just before it (the last, or the one whose `id` is `tool`)',
+  sleep: 'waits `time` s',
+  usage: 'the token usage this response reports',
+  error: 'fails the request as a provider error; with `times`, only the first attempts',
+  end: 'the finish reason (`stop` or `max-tokens`); last line only',
+  title: "the session's title, when the titler asks",
+}
+
+/** The `help` reply: the plain commands and every script command with its fields, as Markdown. */
+export function helpText() {
+  const fields = cmd => Object.entries(SCHEMA[cmd]).map(([name, [, required]]) => `\`${name}${required ? '' : '?'}\``).join(' ')
+  const rows = Object.keys(SCHEMA).map(cmd => `| \`{"cmd":"${cmd}"}\` | ${fields(cmd)} | ${PURPOSE[cmd]} |`)
+  return [
+    'Plain prompts:',
+    '',
+    '| Prompt | Reply |',
+    '|---|---|',
+    '| `say <text>` | `<text>` (one line) |',
+    '| `help` | this table |',
+    '',
+    'Scripts: a prompt starting with `{`, one JSON command per line (`?` marks an optional field):',
+    '',
+    '| Command | Fields | Does |',
+    '|---|---|---|',
+    ...rows,
+    '',
+    `Error kinds: ${Object.keys(ERROR_KINDS).map(k => `\`${k}\``).join(', ')}.`,
+  ].join('\n')
+}
+
+/**
+ * The reply to a prompt that is not a script: `say <text>` (one line) answers `<text>`, `help` the
+ * command table, anything else the standing reply.
+ */
+export function plainReply(text) {
+  const trimmed = text.trim()
+  if (/^help$/i.test(trimmed)) return helpText()
+  const say = /^say\s+(.+)$/i.exec(trimmed)
+  if (say && !/[\r\n]/.test(say[1])) return say[1].trim()
+  return ORDERS_REPLY
 }
 
 /** Whether a prompt is meant as a script: its text starts with `{` (leading whitespace ignored). */

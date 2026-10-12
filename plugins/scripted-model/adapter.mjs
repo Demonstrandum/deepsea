@@ -4,7 +4,7 @@
  */
 import { createHash } from 'node:crypto'
 import { LlmAdapter, LlmError } from '@deepseek-ai/dsh-llm'
-import { chunk, ERROR_KINDS, FINISHED_REPLY, isScript, ORDERS_REPLY, parseScript, segments } from './script.mjs'
+import { chunk, ERROR_KINDS, FINISHED_REPLY, isScript, parseScript, plainReply, segments } from './script.mjs'
 
 export const MODEL_ID = 'script'
 const DEFAULT_TITLE = 'scripted session'
@@ -60,7 +60,7 @@ export class ScriptedAdapter extends LlmAdapter {
     const messages = options.messages ?? []
     const userIndex = messages.findLastIndex(isPrompt)
     const text = textOf(messages[userIndex])
-    if (!isScript(text)) { yield* this.reply(options, ORDERS_REPLY); return }
+    if (!isScript(text)) { yield* this.reply(options, plainReply(text)); return }
 
     const { commands, errors } = parseScript(text)
     if (errors.length > 0) {

@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { ScriptedAdapter } from '../adapter.mjs'
-import { chunk, FINISHED_REPLY, isScript, ORDERS_REPLY, parseScript, segments } from '../script.mjs'
+import { chunk, FINISHED_REPLY, helpText, isScript, ORDERS_REPLY, parseScript, plainReply, segments } from '../script.mjs'
 
 const user = text => ({ role: 'user', content: [{ type: 'text', text }] })
 const assistant = blocks => ({ role: 'assistant', content: blocks })
@@ -15,6 +15,21 @@ async function collect(options) {
 }
 const blocks = chunks => chunks.filter(c => c.type === 'block-end').map(c => c.block)
 const finish = chunks => chunks.at(-1)
+
+test('plain prompts: say <text> echoes one line, help lists the commands', async () => {
+  assert.equal(plainReply('say XXXX YYY ZZZ'), 'XXXX YYY ZZZ')
+  assert.equal(plainReply('  Say  hello there  '), 'hello there')
+  assert.equal(plainReply('say one\ntwo'), ORDERS_REPLY)
+  assert.equal(plainReply('say'), ORDERS_REPLY)
+  assert.equal(plainReply('sayonara'), ORDERS_REPLY)
+  const help = helpText()
+  assert.equal(plainReply(' HELP '), help)
+  for (const cmd of ['say', 'think', 'tool', 'expect', 'sleep', 'usage', 'error', 'end', 'title']) assert.match(help, new RegExp(`\\| \`\\{"cmd":"${cmd}"\\}\` \\|`))
+  assert.match(help, /`text` `chunks\?` `chunkDelay\?`/)
+  assert.match(help, /`rate-limit`/)
+  const chunks = await collect({ messages: [user('say XXXX YYY ZZZ')] })
+  assert.deepEqual(blocks(chunks), [{ type: 'text', text: 'XXXX YYY ZZZ' }])
+})
 
 test('a prompt that is not a script gets the standing reply', async () => {
   for (const text of ['hello', '', '  plain text', '[1,2]']) {

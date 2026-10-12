@@ -23,7 +23,9 @@ variant.
 ## Which prompts are scripts
 
 - A prompt whose text does not start with `{` (leading whitespace ignored)
-  gets the reply "Awaiting orders, m'lord".
+  is a plain prompt: `say <text>` (one line) gets the reply `<text>`, `help`
+  a Markdown table of these and of every script command with its fields,
+  and anything else the reply "Awaiting orders, m'lord".
 - A prompt that does is parsed and validated **in full before anything
   runs**. Any problem fails the request with an API error (code
   `SCRIPT_INVALID`, status 400) listing every bad line, e.g.
