@@ -1,0 +1,35 @@
+{
+  "accounts": {
+    "zai": {
+      "provider": "zai",
+      "credential": "0123456789abcdef0123456789abcdef.simZaiKey",
+      "env": "ZAI_API_KEY",
+      "settings": {
+        "llm-pi-ai": {
+          "providers": {
+            "zai": {
+              "apiKeyEnv": "ZAI_API_KEY"
+            }
+          }
+        }
+      }
+    },
+    "zai-empty": {
+      "provider": "zai",
+      "credential": "0123456789abcdef0123456789abcdef.simZaiEmpty",
+      "env": "ZAI_API_KEY",
+      "settings": {
+        "llm-pi-ai": {
+          "providers": {
+            "zai": {
+              "apiKeyEnv": "ZAI_API_KEY"
+            }
+          }
+        }
+      },
+      "state": {
+        "balanceMicros": 0
+      }
+    }
+  }
+}

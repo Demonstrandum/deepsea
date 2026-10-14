@@ -1,0 +1,34 @@
+{
+  "accounts": {
+    "kimi": {
+      "provider": "moonshot",
+      "credential": "sk-moonshot-sim",
+      "env": "MOONSHOT_API_KEY",
+      "settings": {
+        "llm-pi-ai": {
+          "providers": {
+            "moonshotai": {
+              "apiKeyEnv": "MOONSHOT_API_KEY"
+            }
+          }
+        }
+      }
+    },
+    "kimi-plan": {
+      "provider": "moonshot",
+      "kind": "email",
+      "credential": "kimi@example.com",
+      "signIn": "kimi-coding-oauth",
+      "settings": {
+        "llm-pi-ai": {
+          "providers": {
+            "kimi-coding-oauth": {}
+          }
+        }
+      },
+      "state": {
+        "plan": "pro"
+      }
+    }
+  }
+}
