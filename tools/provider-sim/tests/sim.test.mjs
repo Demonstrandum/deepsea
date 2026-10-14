@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createSimulator } from '../server.mjs'
-import { costMicros } from '../providers.mjs'
+import { costMicros } from '../common.mjs'
 import { normalize, promptOf } from '../wire.mjs'
 
 const made = []

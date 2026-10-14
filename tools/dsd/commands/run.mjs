@@ -92,7 +92,7 @@ async function simulate(id, home, build, spec = 'openrouter,deepseek') {
   const accounts = await provisionAccounts(sim, spec === true ? 'openrouter,deepseek' : spec, parseThrowaway(id)?.hex ?? id)
   const env = { DSH_PROVIDER_SIMULATOR: sim.url }
   for (const account of accounts) if (account.env) env[account.env] = account.credential
-  // The rows the accounts' routes need (`settings` in accounts.json: row id → config), appended
+  // The rows the accounts' routes need (`settings` in the fixture: row id → config), appended
   // to the throwaway's profile patch; JSON is YAML.
   const rows = accounts.reduce((all, account) => merge(all, account.settings), {})
   const patch = join(home, 'profiles', 'web', 'cordis.patch.yml')

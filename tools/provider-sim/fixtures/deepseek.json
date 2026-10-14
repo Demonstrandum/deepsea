@@ -1,0 +1,18 @@
+{
+  "accounts": {
+    "deepseek": {
+      "provider": "deepseek",
+      "credential": "sk-sim-deepseek",
+      "env": "DEEPSEEK_API_KEY"
+    },
+    "deepseek-empty": {
+      "provider": "deepseek",
+      "credential": "sk-sim-deepseek-empty",
+      "env": "DEEPSEEK_API_KEY",
+      "state": {
+        "balanceMicros": 0,
+        "grantedMicros": 0
+      }
+    }
+  }
+}

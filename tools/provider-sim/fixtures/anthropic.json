@@ -1,0 +1,73 @@
+{
+  "accounts": {
+    "anthropic": {
+      "provider": "anthropic",
+      "credential": "sk-ant-api03-sim",
+      "env": "ANTHROPIC_API_KEY",
+      "settings": {
+        "llm-pi-ai": {
+          "providers": {
+            "anthropic": {
+              "apiKeyEnv": "ANTHROPIC_API_KEY"
+            }
+          }
+        }
+      }
+    },
+    "anthropic-low": {
+      "provider": "anthropic",
+      "credential": "sk-ant-api03-sim-low",
+      "env": "ANTHROPIC_API_KEY",
+      "settings": {
+        "llm-pi-ai": {
+          "providers": {
+            "anthropic": {
+              "apiKeyEnv": "ANTHROPIC_API_KEY"
+            }
+          }
+        }
+      },
+      "state": {
+        "balanceMicros": 50000
+      }
+    },
+    "anthropic-max": {
+      "provider": "anthropic",
+      "kind": "email",
+      "credential": "max@example.com",
+      "signIn": "anthropic-oauth",
+      "settings": {
+        "llm-pi-ai": {
+          "providers": {
+            "anthropic-oauth": {}
+          }
+        }
+      },
+      "state": {
+        "plan": "max5"
+      }
+    },
+    "anthropic-max-80": {
+      "provider": "anthropic",
+      "kind": "email",
+      "credential": "max80@example.com",
+      "signIn": "anthropic-oauth",
+      "settings": {
+        "llm-pi-ai": {
+          "providers": {
+            "anthropic-oauth": {}
+          }
+        }
+      },
+      "state": {
+        "plan": "max5",
+        "windows": {
+          "five_hour": {
+            "used": 4000000,
+            "start": null
+          }
+        }
+      }
+    }
+  }
+}

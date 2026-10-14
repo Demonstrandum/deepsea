@@ -16,8 +16,7 @@ import { readdirSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { anthropic } from './anthropic.mjs'
-import { deepseek, initialState, openrouter, providerFor } from './providers.mjs'
+import { loadProviders } from './providers/index.mjs'
 import { openStore } from './store.mjs'
 
 const BODY_LIMIT = 32 * 1024 * 1024
@@ -60,7 +59,10 @@ export async function createSimulator({ db, catalogDir, log = () => {} }) {
       ctx.json(res, status, { type: 'error', error: { type, code: status, message } }, headers)
     },
   }
-  const handlers = { openrouter: openrouter(ctx, catalog), deepseek: deepseek(ctx, catalog), anthropic: anthropic(ctx, catalog) }
+  const providers = await loadProviders()
+  const handlers = Object.fromEntries([...providers].map(([name, p]) => [name, p.create(ctx, catalog)]))
+  const byHost = new Map([...providers.values()].flatMap(p => p.hosts.map(h => [h, p.name])))
+  const initialState = (provider, credential, kind) => providers.get(provider).initialState(kind, credential)
 
   const readBody = req => new Promise((resolve, reject) => {
     const parts = []
@@ -98,7 +100,7 @@ export async function createSimulator({ db, catalogDir, log = () => {} }) {
       const text = req.method === 'GET' || req.method === 'HEAD' ? '' : await readBody(req)
       if (url.pathname.startsWith('/_sim/')) return await admin(req, res, url.pathname, text)
       const [, host, ...rest] = url.pathname.split('/')
-      const provider = providerFor(host)
+      const provider = byHost.get(host)
       if (!provider) return ctx.error(res, 501, 'not_simulated', `${host || '(no host)'} is not simulated`)
       let body = {}
       if (text && /^application\/x-www-form-urlencoded\b/i.test(req.headers['content-type'] ?? '')) body = Object.fromEntries(new URLSearchParams(text))

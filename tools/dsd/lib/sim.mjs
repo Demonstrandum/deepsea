@@ -6,7 +6,7 @@
  *   ~/.deepsea/_sim/sim.json     { pid, url, started } of the running simulator
  *   <machine logs>/sim/          its run logs
  *
- * Test accounts (tools/provider-sim/accounts.json) are named starting points:
+ * Test accounts (tools/provider-sim/fixtures/<provider>.json) are named starting points:
  * `--accounts openrouter,deepseek-empty` gives a throwaway fresh accounts in
  * those states, its credentials suffixed with the throwaway's id so no two
  * throwaways share one; `name=<credential>` uses that credential as it is (a
@@ -16,7 +16,7 @@
  * starts with the grant stored for that route.
  */
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { takeLock } from './harness.mjs'
 import { openRunLog } from './logs.mjs'
@@ -27,7 +27,7 @@ import { DsdError, isoLocal, note, sleep } from './util.mjs'
 export const simDir = () => join(deepseaRoot(), '_sim')
 const stateFile = () => join(simDir(), 'sim.json')
 const SERVER = () => join(REPO, 'tools', 'provider-sim', 'server.mjs')
-const FIXTURES = () => join(REPO, 'tools', 'provider-sim', 'accounts.json')
+const FIXTURES = () => join(REPO, 'tools', 'provider-sim', 'fixtures')
 
 /** The running simulator's facts, or undefined. */
 export async function simStatus() {
@@ -101,7 +101,9 @@ export async function stopSim() {
 
 /** The named test accounts. */
 export function fixtures() {
-  return JSON.parse(readFileSync(FIXTURES(), 'utf8')).accounts
+  const all = {}
+  for (const file of readdirSync(FIXTURES()).filter(f => f.endsWith('.json')).sort()) Object.assign(all, JSON.parse(readFileSync(join(FIXTURES(), file), 'utf8')).accounts)
+  return all
 }
 
 /** POST JSON to the simulator; the answer's JSON. */

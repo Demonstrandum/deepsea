@@ -19,7 +19,7 @@
  * at 100% answers 429 with Anthropic's unified rate-limit headers.
  */
 import { randomBytes, randomUUID } from 'node:crypto'
-import { generate, STARTING_MICROS } from './providers.mjs'
+import { generate, STARTING_MICROS } from '../common.mjs'
 
 /** Plans: their names and token limits per window. */
 export const PLANS = {
@@ -123,7 +123,7 @@ const ERROR_TYPES = { 'rate-limit': 'rate_limit_error', overloaded: 'overloaded_
   auth: 'authentication_error', quota: 'billing_error', 'context-length': 'invalid_request_error', 'invalid-request': 'invalid_request_error' }
 
 /** Anthropic: one handler for its API, sign-in page and token hosts. */
-export function anthropic(ctx, catalog) {
+export function create(ctx, catalog) {
   const store = ctx.store
   const keyAccount = key => store.account('anthropic', 'key', key, () => anthropicState('key', key))
   const fail = res => (status, kind, message, headers) => anthropicError(ctx, res, status, ERROR_TYPES[kind] ?? kind, message, headers)
@@ -275,3 +275,10 @@ export function anthropic(ctx, catalog) {
   }
   return handler
 }
+
+export const name = 'anthropic'
+export const hosts = ['api.anthropic.com', 'claude.ai', 'platform.claude.com', 'console.anthropic.com']
+/** A new account's state. */
+export const initialState = (kind, credential) => anthropicState(kind, credential)
+
+export default { name, hosts, initialState, create }
