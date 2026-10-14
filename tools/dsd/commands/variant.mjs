@@ -7,7 +7,7 @@
  *
  * `new` writes the home, its variant.yml (port block, Serve path, source) and
  * its links. `build` makes the immutable build of its source commit, writes
- * the plugin patches, and builds its app; with `--install` it installs the
+ * its plugins into its profile as bundles, and builds its app; with `--install` it installs the
  * app (~/Applications), the server host and relay link (Application
  * Support) and the relay LaunchAgent, and with `--dock` a Dock tile.
  * `remove` uninstalls all of that and, with `--home`, deletes the home.
@@ -22,7 +22,7 @@ import {
   launchAgentOf, linkRelayNode, listening, relayLabelOf, removeApp, removeDockTile, removeLaunchAgent, removeServePath, serverHostNameOf, supportDirOf, tailnetFacts,
 } from '../lib/install.mjs'
 import { buildsDir, homeOf, logDirOf, variantName } from '../lib/paths.mjs'
-import { selectPlugins, writePluginPatches } from '../lib/plugins.mjs'
+import { installBundles, selectPlugins } from '../lib/plugins.mjs'
 import { macosLeftovers, refuseOwnHome } from '../lib/remove.mjs'
 import { ensureSourceBuild, resolveSourceCommit } from '../lib/source.mjs'
 import { DsdError, isoLocal, note, onlyFlags, parseArgs, printJson, sleep, usage } from '../lib/util.mjs'
@@ -105,7 +105,7 @@ export async function build(argv) {
   const harnessBuild = readlinkSync(join(dir, 'harness'))
   const plugins = variantPlugins(config, dir)
   const port = ports(config)
-  const patches = writePluginPatches(plugins, join(home, 'run', 'plugins'))
+  installBundles(plugins, home, harnessBuild)
   const facts = config.serve ? tailnetFacts() : undefined
   const url = config.serve && facts?.dnsName ? `https://${facts.dnsName}${config.servePath}/` : `http://127.0.0.1:${port.relay}/`
   const out = mkdtempSync(join(tmpdir(), `deepsea-build-${id}-`))
@@ -130,7 +130,7 @@ export async function build(argv) {
     '--variant', id, '--home', home, '--listen', `127.0.0.1:${port.relay}`, '--dsh', `127.0.0.1:${port.dsh}`,
     ...(proxy ? ['--proxy', `127.0.0.1:${port.proxy}`] : []), '--log-dir', logDirOf(id), '--cwd', harnessBuild,
     '--', node, '--import', 'tsx/esm', join(harnessBuild, 'apps', 'cli', 'src', 'bin.ts'), '--profile', 'web',
-    ...patches.flatMap(p => ['--patch', p]), '--no-open', '--port', String(port.dsh)]
+    '--no-open', '--port', String(port.dsh)]
   const agent = await installLaunchAgent(id, programArguments, join(logDirOf(id), 'relay', 'launchd.log'))
   relink(join(home, 'source'), dir)
   const dock = args.dock ? addDockTile(app) : undefined

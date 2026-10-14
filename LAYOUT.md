@@ -150,6 +150,9 @@ installed.
 
 Everything DSH itself owns stays where DSH puts it (`sessions/`,
 `attachments/`, `storages/`, `cache/`, `profiles/`, `.credentials.yaml`).
+dsd installs a variant's plugins into `profiles/web/` as bundles (its
+`package.json` and `node_modules/@deepsea/`; tools/dsd/README.md), as
+`dsh plugin add` would.
 Plugin state lives in the home, one directory per plugin, never suffixed
 with the variant (the home already is the variant):
 

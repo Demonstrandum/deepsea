@@ -56,18 +56,25 @@ free ports, have no Serve path, no LaunchAgent and no LaunchServices
 registration, and their app uses a non-persistent WebKit store, so removing
 the home and the temporary build directory removes everything. A throwaway
 runs the shared build of the pinned harness commit (`--harness <ref>` names
-another harness commit) and loads plugins in place from the checkout dsd
-runs in, so a topic worktree's dsd tests that worktree's plugins as they are,
+another harness commit) and links plugins from the checkout dsd runs in, so
+a topic worktree's dsd tests that worktree's plugins as they are,
 and a rebuilt client bundle hot-swaps into the open page. `--source <ref>`
 runs a commit of this repository instead, as an immutable build (below): its
 plugins, its harness pin and its app; `--source integration/base` runs every
 topic together (`dsd topics integrate`). `--plugins <names|all>` selects
-them: each plugin's own bundle patch, its package name replaced by the
-absolute path of its entry module, is passed to the server; a plugin never
-installed or built is installed and built first. `all` leaves machine-wide
-plugins (plugins/AGENTS.md) out; naming one includes it. A plugin is loaded
-through the rows of its `cordis.patch.yml` named after its package (nested
-rows too, such as a row inside a preset), so every plugin needs one.
+them, and they are installed into the variant's web profile as bundles, as
+`dsh plugin add` installs them: each a `link:` dependency and a
+`dsh.profile.bundles` entry of `profiles/web/package.json` (after the
+profile's own bundles, server-log first), with `node_modules/<package>`
+linked to its directory. The server loads each through its own bundle
+patch (`cordis.patch.yml`, so every plugin needs one), and the Plugins panel
+lists it as an installed bundle, with its card and switches. dsd owns the
+profile's `@deepsea/*` packages; anything else installed there stays. A
+plugin never installed or built is installed and built first. `all` leaves
+machine-wide plugins (plugins/AGENTS.md) out; naming one includes it.
+`--patch` files come after every bundle layer, so a row there replaces a
+plugin's whole config. The panel's **Uninstall** takes a plugin out of that
+variant until its next `dsd build` (a throwaway: until it is thrown away).
 `--patch <file>[,<file>…]` passes patch files of your own after the plugins'
 patches: a row there replaces a plugin row's whole `config`, or inserts a
 fixture row (a fake server, a test tool).
@@ -158,7 +165,7 @@ taken over. Build logs: `~/Library/Logs/io.github.taliesinb.deepsea/builds/`.
 |---|---|
 | `dsd play [--plugins <names\|all>] [--accounts <names\|standard\|none>] [--source <ref>] [--harness <ref>] [--patch <file>,…] [--real]` | a throwaway to try things in, for people: `run release --throwaway --visible --detach --scripted --source integration/base --plugins all --simulated --accounts standard` (the app in front of you, every plugin, every provider simulated with test accounts, the scripted model the default); `--real` uses the real providers and no accounts. Quitting the app throws it away |
 | `dsd new <v> [--source <ref>] [--color <hex>] [--plugins <names\|all>] [--no-serve]` | create a named variant: home, `variant.yml` (port block: the first free one; Serve path, stepping aside from another account's), and the home's `logs` / `support` links (LAYOUT.md §4, §7); `--source` defaults to `integration/base` |
-| `dsd build <v> [--install [--dock]] [--self]` | make sure the build of its source commit exists, write its plugin patches, and build its app (`apps/macos`); `--install` installs the app (`~/Applications`), the server host and relay link (Application Support), the relay LaunchAgent (loaded at once; LAYOUT.md §6) and the home's `source` link, and with `--dock` a Dock tile. The server host is replaced only when its signature changes, so privacy grants survive |
+| `dsd build <v> [--install [--dock]] [--self]` | make sure the build of its source commit exists, install its plugins into its profile as bundles, and build its app (`apps/macos`); `--install` installs the app (`~/Applications`), the server host and relay link (Application Support), the relay LaunchAgent (loaded at once; LAYOUT.md §6) and the home's `source` link, and with `--dock` a Dock tile. The server host is replaced only when its signature changes, so privacy grants survive |
 | `dsd remove <v> [--home] [--self]` | uninstall a named variant: its LaunchAgent (stopping relay and server), its own Serve path, Dock tile, app, preferences and `~/Library` leftovers; the home stays unless `--home` |
 | `dsd run <v> [--throwaway \| --throwaway-app \| --throwaway-server] [--visible] [--detach] [--scripted] [--plugins <names\|all>] [--patch <file>,…] [--app <checkout \| ref>] [--source <ref>] [--harness <ref>] [--ttl <min>] [--keep]` | start it, building first if needed (a throwaway always gets plugins/test-driver and plugins/server-log); prints id, home, URL, login URL (with token), pids, log, app path, automation socket, and with `--throwaway` the relay's pid, port, URL and log. `--source <ref>` runs a build of that commit of this repository (plugins, harness pin, app; a named plugin, or under `all` any plugin, that build lacks comes from this checkout, so a topic not integrated yet runs beside the integration); `--harness` names a harness commit directly; `--simulated [--accounts <names>]` points every model provider at the provider simulator with fresh test accounts (default `standard`: one account per provider route, keys and signed-in Plans; a later account replaces an earlier one of the same route, so `standard,openrouter-low` swaps in a nearly spent OpenRouter key; `none` for none; tools/provider-sim/README.md) |
 | `dsd stop [<ref>] [--keep]` | stop it: a named variant's relay job is unloaded (relay and server stop; the LaunchAgent stays and starts again at login or with `dsd run`); a throwaway's home, logs and macOS leftovers are removed unless `--keep` |

@@ -40,7 +40,7 @@ import { runNamed } from './variant.mjs'
 import { credentialsDocument, ensureSim, provisionAccounts } from '../lib/sim.mjs'
 import { buildPaths, ensureBuild, harnessRepo, linkHarness, readLock, resolveHarnessCommit } from '../lib/harness.mjs'
 import { openRunLog } from '../lib/logs.mjs'
-import { preparePlugin, selectPlugins, writePluginPatches } from '../lib/plugins.mjs'
+import { installBundles, preparePlugin, selectPlugins } from '../lib/plugins.mjs'
 import { homeOf, logDirOf, REPO, variantName } from '../lib/paths.mjs'
 import { alive, freePort, listenerPids } from '../lib/processes.mjs'
 import { removeVariant, SERVER_ENTRY } from '../lib/remove.mjs'
@@ -279,14 +279,16 @@ export async function run(argv) {
     try { bundle = buildThrowawayApp(id, { source: app, harnessBuild: build, entry }) } catch (error) { await cleanup(); throw error }
   }
 
-  // The plugins' own patches, then the caller's: a later layer replaces a row's whole config.
-  const patches = [...writePluginPatches(plugins, join(home, 'run', 'plugins')), ...extraPatches]
+  // The plugins as bundles of the profile (each loads from its own bundle patch), then the
+  // caller's patches, which come after every bundle layer: a later layer replaces a row's whole config.
+  installBundles(plugins, home, build)
+  const patches = extraPatches
   const serverArgs = ['--import', 'tsx/esm', relay ? join(build, SERVER_ENTRY) : SERVER_ENTRY, '--profile', 'web', ...patches.flatMap(p => ['--patch', p]), '--no-open', '--port', String(port)]
   const pluginNote = plugins.length ? ` plugins ${plugins.map(p => p.name).join(',')}` : ''
   let child
   let facts
   if (relay) {
-    const proxyPort = plugins.some(p => p.name === 'tailscale') ? proxyPortOf(patches.map(p => readFileSync(p, 'utf8'))) : undefined
+    const proxyPort = plugins.some(p => p.name === 'tailscale') ? proxyPortOf([...plugins.map(p => readFileSync(join(p.dir, 'cordis.patch.yml'), 'utf8')), ...patches.map(p => readFileSync(p, 'utf8'))]) : undefined
     const relayArgs = [relaySource.entry, '--variant', id, '--home', home, '--listen', `127.0.0.1:${relay.port}`, '--dsh', `127.0.0.1:${port}`,
       ...(proxyPort ? ['--proxy', `127.0.0.1:${proxyPort}`] : []), '--log-dir', logDirOf(id), '--cwd', build, '--', process.execPath, ...serverArgs]
     mkdirSync(join(logDirOf(id), 'relay'), { recursive: true, mode: 0o700 })

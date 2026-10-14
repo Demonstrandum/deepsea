@@ -329,3 +329,35 @@ test('--get picks a field by a dotted path; check skips lines marked dsd-check: 
   const lines = [{ file: 't.mjs', line: 1, text: "const home = '/Users/x/projects'" }, { file: 't.mjs', line: 2, text: `const home = '/Users/x/projects' // ${ALLOW_MARK}` }] // dsd-check: allow
   assert.deepEqual(scan(lines, BUILTIN_PATTERNS).map(h => h.line), [1])
 })
+
+test('plugins become bundles of the profile: dsd owns @deepsea/*, the rest stays', async () => {
+  const { installBundles } = await import('../lib/plugins.mjs')
+  const { REPO } = await import('../lib/paths.mjs')
+  const { readFileSync: read, lstatSync, realpathSync, existsSync } = await import('node:fs')
+  const root = mkdtempSync(join(tmpdir(), 'dsd-bundles-'))
+  try {
+    const plugin = (name) => {
+      const dir = join(root, 'plugins', name)
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: `@deepsea/${name}` }))
+      return { name, dir, pkg: { name: `@deepsea/${name}` } }
+    }
+    const home = join(root, 'home')
+    const harness = realpathSync(join(REPO, 'harness'))
+    installBundles([plugin('server-log'), plugin('alpha')], home, harness)
+    const manifestPath = join(home, 'profiles', 'web', 'package.json')
+    let manifest = JSON.parse(read(manifestPath, 'utf8'))
+    assert.deepEqual(manifest.dsh.profile.bundles.filter(b => b.startsWith('@deepsea/')), ['@deepsea/server-log', '@deepsea/alpha'])
+    assert.ok(manifest.dsh.profile.bundles.includes('@deepseek-ai/dsh-web-app'))
+    assert.ok(lstatSync(join(home, 'profiles', 'web', 'node_modules', '@deepsea', 'alpha')).isSymbolicLink())
+    // Something the person installed stays; a plugin no longer selected goes.
+    manifest.dependencies['left-alone'] = '1.0.0'
+    manifest.dsh.profile.bundles.push('left-alone')
+    writeFileSync(manifestPath, JSON.stringify(manifest))
+    installBundles([plugin('server-log')], home, harness)
+    manifest = JSON.parse(read(manifestPath, 'utf8'))
+    assert.deepEqual(Object.keys(manifest.dependencies), ['left-alone', '@deepsea/server-log'])
+    assert.ok(manifest.dsh.profile.bundles.includes('left-alone'))
+    assert.equal(existsSync(join(home, 'profiles', 'web', 'node_modules', '@deepsea', 'alpha')), false)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
