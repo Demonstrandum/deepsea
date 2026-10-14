@@ -30,8 +30,9 @@ function describe(name, root = REPO) {
 /** Every plugin directory of a checkout (default: this one). */
 export function allPlugins(root = REPO) {
   if (!existsSync(pluginsDir(root))) return []
+  // A plugin directory may be a link (the extras link plugins that live in other repositories).
   return readdirSync(pluginsDir(root), { withFileTypes: true })
-    .filter(entry => entry.isDirectory() && existsSync(join(pluginsDir(root), entry.name, 'package.json')))
+    .filter(entry => (entry.isDirectory() || entry.isSymbolicLink()) && existsSync(join(pluginsDir(root), entry.name, 'package.json')))
     .map(entry => entry.name).sort()
 }
 
