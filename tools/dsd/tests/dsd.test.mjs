@@ -368,3 +368,23 @@ test('plugins become bundles of the profile: dsd owns @deepsea/*, the rest stays
     assert.equal(existsSync(join(home, 'profiles', 'web', 'node_modules', 'other-plugin')), false)
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
+
+test('gc: an installed variant\'s build and the harness build it links are in use; a collected build releases its harness', async () => {
+  const { buildUsers } = await import('../commands/manage.mjs')
+  const { buildsDir, homeOf } = await import('../lib/paths.mjs')
+  const { symlinkSync } = await import('node:fs')
+  const deepsea = join(buildsDir(), 'deepsea-aaaaaaaaaaaa')
+  const old = join(buildsDir(), 'deepsea-cccccccccccc')
+  const harness = join(buildsDir(), 'harness-bbbbbbbbbbbb')
+  const oldHarness = join(buildsDir(), 'harness-dddddddddddd')
+  for (const dir of [deepsea, old, harness, oldHarness]) mkdirSync(dir, { recursive: true })
+  symlinkSync(harness, join(deepsea, 'harness'))
+  symlinkSync(oldHarness, join(old, 'harness'))
+  mkdirSync(homeOf('installed'), { recursive: true })
+  writeVariant('installed', { id: 'installed', ports: 3290, source: 'integration/base' })
+  symlinkSync(deepsea, join(homeOf('installed'), 'source'))
+  const users = buildUsers(new Set(['deepsea-cccccccccccc']))
+  assert.ok(users.has(deepsea), 'the installed variant\'s source build')
+  assert.ok(users.has(harness), 'the harness build a kept deepsea build links')
+  assert.ok(!users.has(oldHarness), 'a collected deepsea build no longer holds its harness build')
+})

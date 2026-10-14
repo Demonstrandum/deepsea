@@ -2,9 +2,9 @@
  * dsd stop | list | gc | builds | link
  */
 import { existsSync, lstatSync, readdirSync, readlinkSync, rmSync, statSync } from 'node:fs'
-import { join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { buildPaths, buildReady, buildRecord, ensureBuild, harnessRepo, linkExtras, linkHarness, readLock, resolveHarnessCommit } from '../lib/harness.mjs'
-import { buildsDir, mainCheckout, REPO } from '../lib/paths.mjs'
+import { buildsDir, homeOf, mainCheckout, REPO } from '../lib/paths.mjs'
 import { listening } from '../lib/install.mjs'
 import { runningAs } from '../lib/processes.mjs'
 import { namedStatus, stopNamed } from './variant.mjs'
@@ -82,19 +82,30 @@ function builds() {
 }
 
 /**
- * What uses each build: variants (configured or running) and `harness`
- * links in this checkout and its worktrees. A build in use is never collected.
+ * What uses each build: variants (configured or running; an installed named
+ * variant through its home's `source` link), `harness` links in this checkout
+ * and its worktrees, and the harness build each deepsea build links (unless
+ * that deepsea build is itself going: `going`). A build in use is never
+ * collected.
+ * @param {Set<string>} [going] - deepsea build names (`deepsea-<hash>`) being collected.
  */
-function buildUsers() {
+export function buildUsers(going = new Set()) {
   const users = new Map()
   const add = (dir, who) => users.set(dir, [...(users.get(dir) ?? []), who])
   for (const v of listVariants()) {
     if (v.state?.build) add(v.state.build, v.id)
     else if (v.config?.harness) add(buildPaths(v.config.harness).dir, v.id)
     if (v.state?.source) add(v.state.source, v.id)
+    try { add(readlinkSync(join(homeOf(v.id), 'source')), `${v.id} (installed)`) } catch { /* not installed */ }
+  }
+  for (const f of existsSync(buildsDir()) ? readdirSync(buildsDir()) : []) {
+    if (!/^deepsea-[0-9a-f]{12}$/.test(f) || going.has(f)) continue
+    try { add(readlinkSync(join(buildsDir(), f, 'harness')), f) } catch { /* no link */ }
   }
   const checkouts = git(REPO, ['worktree', 'list', '--porcelain']).split('\n').filter(l => l.startsWith('worktree ')).map(l => l.slice(9))
   for (const checkout of checkouts) {
+    // A deepsea build is a worktree too: one being collected no longer holds its harness build.
+    if (going.has(basename(checkout)) && dirname(checkout) === buildsDir()) continue
     const link = join(checkout, 'harness')
     try { if (lstatSync(link).isSymbolicLink()) add(readlinkSync(link), checkout === REPO ? 'harness link' : `harness link (${checkout})`) } catch { /* none */ }
   }
@@ -136,7 +147,7 @@ export async function gc(argv) {
   if (args.builds) {
     // Builds of this repository first: each links a harness build, which stays in use until it goes.
     for (const [kind, repo] of [['deepsea', mainCheckout()], ['harness', harnessRepo()]]) {
-      const users = buildUsers()
+      const users = buildUsers(new Set(result.builds))
       for (const f of existsSync(buildsDir()) ? readdirSync(buildsDir()) : []) {
         const m = new RegExp(`^(${kind}-[0-9a-f]{12})\\.json$`).exec(f)
         if (!m) continue
