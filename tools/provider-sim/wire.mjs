@@ -136,7 +136,7 @@ export function respond(conversation, system = '') {
 }
 
 /** The blocks a response's steps produce, its usage override and finish. */
-function blocksOf(steps) {
+export function blocksOf(steps) {
   const blocks = []
   let usage
   let finish

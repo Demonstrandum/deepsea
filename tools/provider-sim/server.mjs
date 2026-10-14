@@ -14,12 +14,16 @@
  */
 import { readdirSync } from 'node:fs'
 import { createServer } from 'node:http'
+import { brotliDecompressSync, gunzipSync, inflateSync, zstdDecompressSync } from 'node:zlib'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { loadProviders } from './providers/index.mjs'
 import { openStore } from './store.mjs'
 
 const BODY_LIMIT = 32 * 1024 * 1024
+
+/** Request bodies a client compressed (pi-ai sends Codex requests as `Content-Encoding: zstd`). */
+const DECODERS = { zstd: zstdDecompressSync, gzip: gunzipSync, 'x-gzip': gunzipSync, deflate: inflateSync, br: brotliDecompressSync }
 
 /**
  * Model catalogs and prices from pi-ai's generated provider files (the same
@@ -68,7 +72,14 @@ export async function createSimulator({ db, catalogDir, log = () => {} }) {
     const parts = []
     let size = 0
     req.on('data', (c) => { size += c.length; if (size > BODY_LIMIT) { reject(new Error('body too large')); req.destroy() } else parts.push(c) })
-    req.on('end', () => resolve(Buffer.concat(parts).toString('utf8')))
+    req.on('end', () => {
+      let data = Buffer.concat(parts)
+      for (const coding of String(req.headers['content-encoding'] ?? '').split(',').map(c => c.trim().toLowerCase()).filter(c => c && c !== 'identity').reverse()) {
+        if (!DECODERS[coding]) { reject(new Error(`unsupported content-encoding ${coding}`)); return }
+        try { data = DECODERS[coding](data, { maxOutputLength: BODY_LIMIT }) } catch (error) { reject(new Error(`the ${coding} body does not decode: ${error.message}`)); return }
+      }
+      resolve(data.toString('utf8'))
+    })
     req.on('error', reject)
   })
 

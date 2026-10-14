@@ -1,0 +1,77 @@
+{
+  "accounts": {
+    "openai": {
+      "provider": "openai",
+      "credential": "sk-proj-sim",
+      "env": "OPENAI_API_KEY",
+      "settings": {
+        "llm-pi-ai": {
+          "providers": {
+            "openai": {
+              "apiKeyEnv": "OPENAI_API_KEY"
+            }
+          }
+        }
+      }
+    },
+    "openai-low": {
+      "provider": "openai",
+      "credential": "sk-proj-sim-low",
+      "env": "OPENAI_API_KEY",
+      "settings": {
+        "llm-pi-ai": {
+          "providers": {
+            "openai": {
+              "apiKeyEnv": "OPENAI_API_KEY"
+            }
+          }
+        }
+      },
+      "state": {
+        "balanceMicros": 50000
+      }
+    },
+    "codex-plus": {
+      "provider": "openai",
+      "kind": "email",
+      "credential": "plus@example.com",
+      "signIn": "openai-codex-oauth",
+      "settings": {
+        "llm-pi-ai": {
+          "providers": {
+            "openai-codex-oauth": {
+              "transport": "sse"
+            }
+          }
+        }
+      },
+      "state": {
+        "plan": "plus"
+      }
+    },
+    "codex-pro-80": {
+      "provider": "openai",
+      "kind": "email",
+      "credential": "pro80@example.com",
+      "signIn": "openai-codex-oauth",
+      "settings": {
+        "llm-pi-ai": {
+          "providers": {
+            "openai-codex-oauth": {
+              "transport": "sse"
+            }
+          }
+        }
+      },
+      "state": {
+        "plan": "pro",
+        "windows": {
+          "primary": {
+            "used": 9600000,
+            "start": null
+          }
+        }
+      }
+    }
+  }
+}
