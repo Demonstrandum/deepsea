@@ -28,8 +28,10 @@ dsd sim account openrouter sk-or-mine --set '{"usageMicros": 0}'
 dsd sim account anthropic max@example.com --set '{"plan": "max20"}'      # an email: a Plan account
 ```
 
-`--simulated` starts the simulator if it is not running (one per machine and
-macOS account, left running; `dsd sim stop` ends it), creates the throwaway's
+`--simulated` starts the simulator if it is not running (one per checkout,
+running that checkout's providers, so a worktree that changes the simulator
+tests its own; all share one store; left running, `dsd sim stop` ends this
+checkout's), creates the throwaway's
 accounts, puts their keys in the server's environment and the routes they
 need in its profile patch, and sets `DSH_PROVIDER_SIMULATOR`.
 

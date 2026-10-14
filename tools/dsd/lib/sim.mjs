@@ -1,10 +1,11 @@
 /**
- * The provider simulator (tools/provider-sim): one per machine and account,
- * shared by every throwaway and agent, started on demand and left running.
+ * The provider simulator (tools/provider-sim): one per checkout (it runs that
+ * checkout's providers, so a worktree changing the simulator tests its own),
+ * all sharing one store, started on demand and left running.
  *
- *   ~/.deepsea/_sim/sim.sqlite   accounts and generations (the simulator's store)
- *   ~/.deepsea/_sim/sim.json     { pid, url, started } of the running simulator
- *   <machine logs>/sim/          its run logs
+ *   ~/.deepsea/_sim/sim.sqlite        accounts and generations (the simulators' store)
+ *   ~/.deepsea/_sim/sim-<hash>.json   { pid, url, started, checkout } of a checkout's simulator
+ *   <machine logs>/sim/               their run logs
  *
  * Test accounts (tools/provider-sim/fixtures/<provider>.json) are named starting points:
  * `--accounts openrouter,deepseek-empty` gives a throwaway fresh accounts in
@@ -16,6 +17,7 @@
  * starts with the grant stored for that route.
  */
 import { spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { takeLock } from './harness.mjs'
@@ -25,7 +27,9 @@ import { alive } from './processes.mjs'
 import { DsdError, isoLocal, note, sleep } from './util.mjs'
 
 export const simDir = () => join(deepseaRoot(), '_sim')
-const stateFile = () => join(simDir(), 'sim.json')
+/** This checkout's simulator: its state file is named after the checkout's path. */
+const checkoutTag = () => createHash('sha256').update(REPO).digest('hex').slice(0, 8)
+const stateFile = () => join(simDir(), `sim-${checkoutTag()}.json`)
 const SERVER = () => join(REPO, 'tools', 'provider-sim', 'server.mjs')
 const FIXTURES = () => join(REPO, 'tools', 'provider-sim', 'fixtures')
 
@@ -53,7 +57,7 @@ export async function ensureSim(harnessBuild) {
   const running = await simStatus()
   if (running) return running
   mkdirSync(simDir(), { recursive: true, mode: 0o700 })
-  const lock = join(simDir(), 'start.lock')
+  const lock = join(simDir(), `start-${checkoutTag()}.lock`)
   for (let i = 0; ; i++) {
     const { held } = takeLock(lock)
     if (held === undefined) break
@@ -65,10 +69,10 @@ export async function ensureSim(harnessBuild) {
   try {
     const again = await simStatus()
     if (again) return again
-    const log = openRunLog(join(machineLogDir(), 'sim'), { tag: 'pending', identity: `provider simulator started by dsd pid ${process.pid}` })
+    const log = openRunLog(join(machineLogDir(), 'sim'), { tag: 'pending', identity: `provider simulator of ${REPO}, started by dsd pid ${process.pid}` })
     const catalog = harnessBuild ? catalogDir(harnessBuild) : undefined
     const args = [SERVER(), '--db', join(simDir(), 'sim.sqlite'), '--port', '0', ...(catalog ? ['--catalog', catalog] : [])]
-    const out = join(simDir(), 'start.out')
+    const out = join(simDir(), `start-${checkoutTag()}.out`)
     rmSync(out, { force: true })
     const child = spawn(process.execPath, args, { detached: true, stdio: ['ignore', openSync(out, 'w'), log.fd] })
     child.unref()
@@ -81,7 +85,7 @@ export async function ensureSim(harnessBuild) {
       url = existsSync(out) ? readFileSync(out, 'utf8').split('\n')[0].trim() || undefined : undefined
     }
     if (!url) throw new DsdError(`the simulator did not start; log: ${log.path}`)
-    writeFileSync(stateFile(), `${JSON.stringify({ pid: child.pid, url, started: isoLocal(), log: log.path }, null, 2)}\n`, { mode: 0o600 })
+    writeFileSync(stateFile(), `${JSON.stringify({ pid: child.pid, url, started: isoLocal(), checkout: REPO, log: log.path }, null, 2)}\n`, { mode: 0o600 })
     note(`provider simulator on ${url} (log: ${log.path})`)
     return await simStatus()
   } finally {
