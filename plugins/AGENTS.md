@@ -79,9 +79,9 @@ copies identical.
 - Log with `ctx.logger` (`info`, `warn`, `error`, `debug`). The harness keeps
   no log sink after startup; `plugins/server-log` writes the messages to the
   server's standard error, which `dsd` captures into the throwaway's server
-  log (`dsd run` loads it into every throwaway). Rows load concurrently, so a
-  message logged while the server starts, before server-log is active, can
-  be lost; check startup work by its effect.
+  log (`dsd run` loads it into every throwaway). Messages logged at startup,
+  before server-log is active, are written when it starts, from the logger's
+  buffer, except `debug` ones (the buffer keeps info and above).
 - State goes under `$DSH_HOME/plugins/<name>/`, traces and logs under the
   variant's log directory (LAYOUT.md §4-5), scratch under
   `$TMPDIR/deepsea-<name>-…`.

@@ -261,7 +261,7 @@ The app's operations (apps/macos/README.md has the protocol):
 
 | Operation | Does |
 |---|---|
-| `load <url>`, `reload` | navigate; answers when the page has loaded |
+| `load <url>`, `reload` | navigate; answers when the page has loaded. The URL may be outside the throwaway's server (a sign-in page, a proxy's token URL), and so may its redirects on the same origin until it has loaded; a link clicked afterwards is opened outside, as any other |
 | `open-session [<session>]` | show a session in the main view, as a click on its sidebar row would (the test driver's browser half), even one the sidebar does not list |
 | `wait-page [--selector <css>] [--text <t>] [--expression <js>] [--timeout <s>] [--settle <ms>]` | until a selector matches, the page shows the text, or the function body returns something truthy; a timeout reports what the page shows instead (URL, title, open dialogs and menus, the start of its text) |
 | `eval <js \| ->` | run a function body in the page (`await` allowed); its JSON value |
