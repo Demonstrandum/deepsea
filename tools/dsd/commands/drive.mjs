@@ -6,30 +6,38 @@
  * Server:
  *   health
  *   create-session [--cwd <dir>] [--preset <name>] [--model <provider/model[:effort]>] [--title <t>]
- *   prompt <session> <text | -> [--no-wait] [--steer] [--timeout <s>]
- *   command <session> <line>
+ *   prompt [<session>] <text | -> [--no-wait] [--steer] [--timeout <s>]
+ *   command [<session>] <line>
  *   wait <session> [--since <seq>] [--timeout <s>]
  *   events <session> [--since <seq>] [--types <a,b/*>] [--limit <n>]
  *   cancel <session>
  *   sessions
- *   invoke <namespace> <method> [<json args>]
+ *   restart-server                        (behind a relay, --throwaway) stop the server; the relay starts
+ *                                         it again, as after /reboot; answers once its new driver is up
+ *   invoke <namespace> <method> [<json args>]   the method's arguments as one object keyed by its
+ *                                         parameter names (a failure names the missing and unexpected ones)
  *   url
  *
  * App (a throwaway started with --throwaway-app):
  *   load <url> | reload
+ *   open-session <session>                show that session in the app (as a sidebar click would)
  *   wait-page [--selector <css>] [--text <t>] [--expression <js>] [--timeout <s>] [--settle <ms>]
  *   eval <js | ->                         a function body (await allowed); its JSON value
  *   resize <W>x<H> | view desktop|mobile | appearance light|dark|system
  *   click <css> [--nth <n>] [--clicks <n>] | click --text <label> [<css>] | click --x <x> --y <y>
  *   hover <css> [--nth <n>] | hover --text <label> [<css>]   (a pointer's page events on it: script-revealed hover controls)
- *   type <text | -> | type --key <Enter | Escape | cmd+k | …>
+ *   type <text | -> [--replace] | type --key <Enter | Escape | cmd+k | …>   (--replace: select the
+ *                                         focused field's contents first, so the text replaces them)
  *   describe <css> [--nth <n>]            the element inspector's record
  *   snapshot [<css> [--nth <n>]] [--window] [--chrome]
  *   window-info | app-log [--lines <n>] | opened [--clear] | quit
  *
- * <session> is a session id, or `last`: the session the last create-session
- * on this throwaway made. `-` reads the prompt from stdin (a scripted-model
- * script, say). Exit status: 0; 3 when a waited turn ended with an error;
+ * <session> is a session id, or `last` (the default when it is left out):
+ * the most recently active session on this throwaway, however it was made
+ * (create-session, the GUI, a command); a prompt or command on a throwaway
+ * with no session yet starts one. `-` reads the prompt from stdin (a
+ * scripted-model script, say). `wait-page` that times out says what the
+ * page shows. Exit status: 0; 3 when a waited turn ended with an error;
  * 4 when the wait timed out.
  */
 import { request } from 'node:http'
@@ -37,11 +45,11 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { homeOf } from '../lib/paths.mjs'
 import { appRequest } from '../lib/appsocket.mjs'
-import { alive } from '../lib/processes.mjs'
+import { alive, listenerPids } from '../lib/processes.mjs'
 import { readState, resolveRef } from '../lib/variants.mjs'
 import { DsdError, onlyFlags, parseArgs, printJson, sleep, usage } from '../lib/util.mjs'
 
-const USAGE = 'dsd drive [-v <ref>] <op> …  server: health create-session prompt command wait events cancel sessions invoke url; app: load reload wait-page eval resize view appearance click hover type describe snapshot window-info app-log opened quit (tools/dsd/README.md)'
+const USAGE = 'dsd drive [-v <ref>] <op> …  server: health create-session prompt command wait events cancel sessions restart-server invoke url; app: load reload open-session wait-page eval resize view appearance click hover type describe snapshot window-info app-log opened quit (tools/dsd/README.md)'
 const APP_OPS = new Set(['load', 'reload', 'wait-page', 'eval', 'resize', 'view', 'appearance', 'click', 'hover', 'type', 'describe', 'snapshot', 'window-info', 'app-log', 'opened', 'quit'])
 const LAST_SESSION = 'run/drive-last-session'
 
@@ -112,22 +120,60 @@ export async function drive(argv) {
   // `-v <ref>` is short for `--variant <ref>`.
   const valued = ['variant', 'cwd', 'preset', 'model', 'title', 'timeout', 'since', 'types', 'limit', 'nth', 'clicks', 'x', 'y', 'key', 'selector', 'text', 'expression', 'settle', 'lines']
   const args = parseArgs(argv.map(a => (a === '-v' ? '--variant' : a)), valued)
-  onlyFlags(args, [...valued, 'no-wait', 'steer', 'window', 'chrome', 'clear'])
+  onlyFlags(args, [...valued, 'no-wait', 'steer', 'window', 'chrome', 'clear', 'replace'])
   const [op, ...rest] = args._
   if (op === undefined) usage(USAGE)
   const variant = resolveRef(args.variant)
   const home = homeOf(variant.id)
-  const session = (value) => {
-    if (value === undefined) usage(`dsd drive ${op} <session id | last>`)
-    if (value !== 'last') return value
+  // `last`: the most recently active session: of the sessions that have started, and the one
+  // the last create-session made (blank until prompted), the one updated last. The GUI's own
+  // New Session stays blank until someone types in it, so it is not taken for the agent's.
+  let latest
+  const newest = async () => {
+    if (latest !== undefined) return latest
     const file = join(home, LAST_SESSION)
-    if (!existsSync(file)) throw new DsdError('no session made by dsd drive create-session on this throwaway yet')
-    return readFileSync(file, 'utf8').trim()
+    const recorded = existsSync(file) ? readFileSync(file, 'utf8').trim() : undefined
+    try {
+      const listed = await post(await driverOf(variant), 'sessions', {})
+      const items = (listed?.items ?? []).filter(i => !i.blank || i.sessionId === recorded)
+      latest = items.toSorted((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0]?.sessionId
+    } catch { /* fall back to the recorded one */ }
+    latest ??= recorded
+    if (latest === undefined) throw new DsdError('this throwaway has no session yet (dsd drive create-session)')
+    return latest
+  }
+  const session = async (value) => value === undefined || value === 'last' ? newest() : value
+  // A prompt or command with no session named, on a throwaway that has none yet, starts one.
+  const sessionOrNew = async (value) => {
+    try { return await session(value) } catch (error) {
+      if (value !== undefined || !/has no session yet/.test(String(error?.message))) throw error
+      const made = await post(await driverOf(variant), 'create-session', {})
+      writeFileSync(join(home, LAST_SESSION), `${made.sessionId}\n`, { mode: 0o600 })
+      return made.sessionId
+    }
+  }
+  if (op === 'open-session') {
+    if (rest.length > 1) usage('dsd drive open-session [<session id | last>]')
+    const sessionId = await session(rest[0])
+    return printJson(await appOp(variant, 'eval', [`const driver = window.__DEEPSEA_TEST_DRIVER__
+      if (!driver) throw new Error("the test driver's browser half is not loaded")
+      return await driver.openSession(${JSON.stringify(sessionId)})`], {}))
   }
   if (APP_OPS.has(op)) return printJson(await appOp(variant, op, rest, args))
   if (op === 'url') {
     const state = readState(variant.id)
     return printJson({ id: variant.id, url: state?.url, login: state?.url && state?.token ? `${state.url}?token=${state.token}` : undefined })
+  }
+  if (op === 'restart-server') {
+    const relay = variant.state?.relay
+    if (relay === undefined) throw new DsdError(`${variant.id} runs its server without a relay; start it with --throwaway to restart its server`)
+    const before = currentDriver(join(home, 'run', 'test-driver.json'))
+    const pids = listenerPids(variant.state.port)
+    for (const pid of pids) { try { process.kill(pid, 'SIGTERM') } catch { /* gone */ } }
+    for (let i = 0; i < 300 && (listenerPids(variant.state.port).length > 0 || pids.some(alive)); i++) await sleep(100)
+    if (pids.some(alive)) throw new DsdError(`the server (pid ${pids.filter(alive).join(', ')}) did not stop within 30 s`)
+    const after = await driverOf(variant)
+    return printJson({ restarted: true, stopped: pids, driver: after?.port ?? after?.url, changed: JSON.stringify(after) !== JSON.stringify(before) })
   }
   const driver = await driverOf(variant)
   switch (op) {
@@ -144,29 +190,31 @@ export async function drive(argv) {
       return printJson(value)
     }
     case 'prompt': {
-      const sessionId = session(rest[0])
-      if (rest.length !== 2) usage('dsd drive prompt <session> <text | -> [--no-wait] [--steer] [--timeout <s>]')
-      const text = rest[1] === '-' ? readStdin() : rest[1]
+      if (rest.length < 1 || rest.length > 2) usage('dsd drive prompt [<session>] <text | -> [--no-wait] [--steer] [--timeout <s>]')
+      const sessionId = await sessionOrNew(rest.length === 2 ? rest[0] : undefined)
+      const given = rest.at(-1)
+      const text = given === '-' ? readStdin() : given
       const value = await post(driver, 'prompt', { sessionId, text, wait: !args['no-wait'], mode: args.steer ? 'steer' : 'queue', ...(args.timeout === undefined ? {} : { timeoutMs: seconds(args.timeout, 'timeout') }) })
-      printJson(value)
+      printJson({ sessionId, ...value })
       return exitFor(value)
     }
     case 'wait': {
-      const value = await post(driver, 'wait', { sessionId: session(rest[0]), ...(args.since === undefined ? {} : { since: Number(args.since) }), ...(args.timeout === undefined ? {} : { timeoutMs: seconds(args.timeout, 'timeout') }) })
+      const value = await post(driver, 'wait', { sessionId: await session(rest[0]), ...(args.since === undefined ? {} : { since: Number(args.since) }), ...(args.timeout === undefined ? {} : { timeoutMs: seconds(args.timeout, 'timeout') }) })
       printJson(value)
       return exitFor(value)
     }
     case 'command': {
-      if (rest.length !== 2) usage('dsd drive command <session> <line>')
-      return printJson(await post(driver, 'command', { sessionId: session(rest[0]), line: rest[1] }))
+      if (rest.length < 1 || rest.length > 2) usage('dsd drive command [<session>] <line>')
+      const sessionId = await sessionOrNew(rest.length === 2 ? rest[0] : undefined)
+      return printJson({ sessionId, ...await post(driver, 'command', { sessionId, line: rest.at(-1) }) })
     }
     case 'events': return printJson(await post(driver, 'events', {
-      sessionId: session(rest[0]),
+      sessionId: await session(rest[0]),
       ...(args.since === undefined ? {} : { since: Number(args.since) }),
       ...(args.types === undefined ? {} : { types: String(args.types).split(',') }),
       ...(args.limit === undefined ? {} : { limit: Number(args.limit) }),
     }))
-    case 'cancel': return printJson(await post(driver, 'cancel', { sessionId: session(rest[0]) }))
+    case 'cancel': return printJson(await post(driver, 'cancel', { sessionId: await session(rest[0]) }))
     case 'invoke': {
       if (rest.length < 2 || rest.length > 3) usage('dsd drive invoke <namespace> <method> [<json args>]')
       let parsed = {}
@@ -203,7 +251,19 @@ async function appOp(variant, op, rest, args) {
       const body = { ...(args.selector ? { selector: args.selector } : {}), ...(args.text ? { text: args.text } : {}), ...(args.expression ? { expression: args.expression } : {}) }
       if (Object.keys(body).length === 0) usage('dsd drive wait-page --selector <css> | --text <t> | --expression <js>')
       const timeout = seconds(args.timeout, 'timeout') ?? 15_000
-      return send('wait-page', { ...body, timeoutMs: timeout, ...(args.settle ? { settleMs: Number(args.settle) } : {}) }, timeout + 10_000)
+      try {
+        return await send('wait-page', { ...body, timeoutMs: timeout, ...(args.settle ? { settleMs: Number(args.settle) } : {}) }, timeout + 10_000)
+      } catch (error) {
+        if (!/timeout/.test(String(error?.message))) throw error
+        // Say what the page shows instead, so the next try aims better.
+        let seen = ''
+        try {
+          const page = await send('eval', { js: `const dialogs = [...document.querySelectorAll('[role=dialog], [role=menu], [role=alertdialog]')].map(d => (d.innerText || '').trim().slice(0, 120))
+            return { url: location.href, title: document.title, dialogs, text: (document.body.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 400) }` })
+          seen = `; the page shows: ${JSON.stringify(page)}`
+        } catch { /* the page cannot answer either */ }
+        throw new DsdError(`${error.message}${seen}`)
+      }
     }
     case 'eval': { const js = one('js | -'); return send('eval', { js: js === '-' ? readStdin() : js }) }
     case 'resize': {
@@ -248,6 +308,14 @@ async function appOp(variant, op, rest, args) {
     case 'type': {
       if (args.key !== undefined) { if (rest.length) usage('dsd drive type --key <key> takes no text'); return send('type', { key: args.key }) }
       const text = one('text | -')
+      if (args.replace) {
+        // Select what the focused field holds, so the typed text replaces it.
+        await send('eval', { js: `const e = document.activeElement
+          if (!e || e === document.body) throw new Error('no field has the focus (click it first)')
+          if (typeof e.select === 'function') e.select()
+          else { const range = document.createRange(); range.selectNodeContents(e); const s = getSelection(); s.removeAllRanges(); s.addRange(range) }
+          return true` })
+      }
       return send('type', { text: text === '-' ? readStdin() : text })
     }
     case 'describe': return send('describe', target())

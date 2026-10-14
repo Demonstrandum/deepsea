@@ -57,7 +57,9 @@ usage windows and prices, and the replies are scripts
 | test restarts and cold starts | `--throwaway` instead: the app behind a relay, as installed |
 | involve providers (models, sign-in, billing, quotas, provider errors) | add `--simulated` (default accounts `standard`; `--accounts openrouter-low,anthropic-max-80` for edge states; `dsd sim fixtures` lists them) |
 | run everything together | add `--source integration/base` (after `dsd topics integrate`) |
-| drive it | `dsd drive -v <id> create-session \| prompt last - \| command last /x \| wait-page \| click \| hover \| type \| eval \| snapshot --window \| opened` (read the snapshot PNGs) |
+| drive it | `dsd drive -v <id> prompt - \| command /x \| open-session \| wait-page \| click \| hover \| type \| eval \| snapshot --window \| opened \| restart-server` (a prompt with no session goes to the latest, or a new one; read the snapshot PNGs) |
+| find an option | `dsd <command> --help`; `--get <path>` prints one field of any command's JSON (`--get id`, `--get summary.text`) |
+| change a plugin's config in a throwaway | `--patch <file>` with a row `- id: <its row id>` and `config:` (it replaces that row's whole config) |
 | read its logs | `dsd logs <id> [server \| app \| relay \| plugin <name>] [--follow]` |
 | change an account mid-test | `dsd sim account <provider> <credential> --set '{…}'` (credential from `run`'s output) |
 | finish | `dsd stop <id>` (always your own: `-v <id>` / `<id>`, never another agent's; never `dsd gc` while others work) |
@@ -127,7 +129,9 @@ Both this repository and the harness fork are kept as **topic branches**:
 - **Every commit is scanned** by the pre-commit hook (`dsd check --staged`):
   local account paths, private addresses, tailnet names, email addresses,
   and the machine-local patterns in `private/check-patterns.txt`. A hit
-  blocks the commit.
+  blocks the commit. Text a test needs as it is (a fake home path, a
+  private address in a resolver test) ends its line with a `dsd-check:
+  allow` comment; never commit with `--no-verify`.
 
 ## The plugin model in one page
 

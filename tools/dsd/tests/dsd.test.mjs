@@ -318,3 +318,14 @@ test('topics rebase: a stack follows its rewritten parents, replaying only its o
     assert.equal(g('rev-list', '--count', 'topic/b'), '4')
   } finally { rmSync(repo, { recursive: true, force: true }) }
 })
+
+test('--get picks a field by a dotted path; check skips lines marked dsd-check: allow', async () => {
+  const { pick } = await import('../lib/util.mjs')
+  const value = { id: 'release-1', summary: { text: 'hi' }, items: [{ sessionId: 'a' }, { sessionId: 'b' }] }
+  assert.equal(pick(value, 'summary.text'), 'hi')
+  assert.equal(pick(value, 'items.-1.sessionId'), 'b')
+  assert.equal(pick(value, 'items.5.sessionId'), undefined)
+  const { scan, BUILTIN_PATTERNS, ALLOW_MARK } = await import('../commands/check.mjs')
+  const lines = [{ file: 't.mjs', line: 1, text: "const home = '/Users/x/projects'" }, { file: 't.mjs', line: 2, text: `const home = '/Users/x/projects' // ${ALLOW_MARK}` }] // dsd-check: allow
+  assert.deepEqual(scan(lines, BUILTIN_PATTERNS).map(h => h.line), [1])
+})

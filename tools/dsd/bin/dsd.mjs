@@ -15,7 +15,9 @@ import { sim } from '../commands/sim.mjs'
 import { topics } from '../commands/topics.mjs'
 import { worktree } from '../commands/worktree.mjs'
 import { REPO } from '../lib/paths.mjs'
-import { DsdError } from '../lib/util.mjs'
+import { readdirSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { DsdError, selectOutput } from '../lib/util.mjs'
 
 const HELP = `dsd — DeepSea developer CLI (tools/dsd/README.md)
 
@@ -58,9 +60,34 @@ function warnForeignCheckout() {
   if (sameRepo) process.stderr.write(`dsd: this is ${REPO}'s dsd, run inside ${here}; plugins and the harness pin come from ${REPO}. Use ${here}/tools/dsd/bin/dsd.mjs (or pnpm dsd there).\n`)
 }
 
-const [command, ...rest] = process.argv.slice(2)
-if (command === undefined || command === 'help' || command === '--help' || command === '-h') {
+/**
+ * A command's help: the doc comments in tools/dsd that start with `dsd <command>`
+ * (drive's lists every operation), and the command's rows of the README's table.
+ */
+function commandHelp(name) {
+  const dsd = join(REPO, 'tools', 'dsd')
+  const parts = []
+  for (const file of readdirSync(join(dsd, 'commands')).filter(f => f.endsWith('.mjs')).sort()) {
+    const text = readFileSync(join(dsd, 'commands', file), 'utf8')
+    for (const m of text.matchAll(/\/\*\*\n((?: \*.*\n)+?) \*\//g)) {
+      const lines = m[1].split('\n').map(l => l.replace(/^ \* ?/, ''))
+      if (new RegExp(`^dsd ${name}\\b`).test(lines[0])) parts.push(lines.join('\n').trimEnd())
+    }
+  }
+  const readme = readFileSync(join(dsd, 'README.md'), 'utf8')
+  const rows = readme.split('\n').filter(l => l.startsWith(`| \`dsd ${name}`)).map(l => l.slice(2, -2).replace(/ \| /, '\n    ').replaceAll('\\|', '|'))
+  if (rows.length) parts.push(rows.join('\n\n'))
+  return parts.length ? `${parts.join('\n\n')}\n\n(tools/dsd/README.md)\n` : HELP
+}
+
+const argv = process.argv.slice(2)
+const get = argv.indexOf('--get')
+if (get >= 0) { selectOutput(argv[get + 1]); argv.splice(get, 2) }
+const [command, ...rest] = argv
+if (command === undefined || command === '--help' || command === '-h' || (command === 'help' && rest.length === 0)) {
   process.stdout.write(HELP)
+} else if (command === 'help' || (command in COMMANDS && rest.some(a => a === '--help' || a === '-h'))) {
+  process.stdout.write(commandHelp(command === 'help' ? rest[0] : command))
 } else if (!(command in COMMANDS)) {
   process.stderr.write(`dsd: unknown command "${command}"\n\n${HELP}`)
   process.exitCode = 2

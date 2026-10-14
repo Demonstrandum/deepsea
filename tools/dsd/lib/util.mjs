@@ -93,7 +93,27 @@ export function git(cwd, args) {
 
 /** Print a JSON value on stdout. */
 export function printJson(value) {
+  if (selected !== undefined) {
+    const picked = pick(value, selected)
+    if (picked === undefined) throw new DsdError(`--get ${selected}: the output has no such field`)
+    process.stdout.write(typeof picked === 'string' ? `${picked}\n` : `${JSON.stringify(picked, null, 2)}\n`)
+    return
+  }
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`)
+}
+
+/** `--get <path>` (any command): print only that field of the JSON output (`a.b.0.c`), a string as it is. */
+let selected
+export function selectOutput(path) { selected = path }
+
+/** A field of a JSON value by a dotted path; array indices are numbers, `-1` the last. */
+export function pick(value, path) {
+  let at = value
+  for (const key of String(path).split('.').filter(Boolean)) {
+    if (at === null || typeof at !== 'object') return undefined
+    at = Array.isArray(at) && /^-?\d+$/.test(key) ? at.at(Number(key)) : at[key]
+  }
+  return at
 }
 
 /** A progress line on stderr. */

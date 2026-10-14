@@ -20,7 +20,11 @@ pnpm link --global          # once, to put `dsd` on PATH
 `dsd` resolves the checkout it lives in from its own path, so it works from
 any directory, and a copy in a topic worktree acts on that worktree. Output
 for programs is JSON on stdout; messages go to stderr; a failure exits
-non-zero with a one-line reason (2 for a usage error). Plain Node, no
+non-zero with a one-line reason (2 for a usage error). `dsd <command> --help`
+(or `dsd help <command>`) prints that command's options and operations;
+`--get <path>` on any command prints one field of its JSON output, a string
+as it is (`dsd drive create-session --get sessionId`, `dsd run … --get id`,
+`dsd drive prompt - --get summary.text`), so scripts need no JSON parsing. Plain Node, no
 dependencies, so it runs on a fresh checkout before anything is installed.
 
 Environment: `DEEPSEA_ROOT` (default `~/.deepsea`) and `DEEPSEA_LOG_ROOT`
@@ -156,7 +160,7 @@ taken over. Build logs: `~/Library/Logs/io.github.taliesinb.deepsea/builds/`.
 | `dsd new <v> [--source <ref>] [--color <hex>] [--plugins <names\|all>] [--no-serve]` | create a named variant: home, `variant.yml` (port block: the first free one; Serve path, stepping aside from another account's), and the home's `logs` / `support` links (LAYOUT.md §4, §7); `--source` defaults to `integration/base` |
 | `dsd build <v> [--install [--dock]] [--self]` | make sure the build of its source commit exists, write its plugin patches, and build its app (`apps/macos`); `--install` installs the app (`~/Applications`), the server host and relay link (Application Support), the relay LaunchAgent (loaded at once; LAYOUT.md §6) and the home's `source` link, and with `--dock` a Dock tile. The server host is replaced only when its signature changes, so privacy grants survive |
 | `dsd remove <v> [--home] [--self]` | uninstall a named variant: its LaunchAgent (stopping relay and server), its own Serve path, Dock tile, app, preferences and `~/Library` leftovers; the home stays unless `--home` |
-| `dsd run <v> [--throwaway \| --throwaway-app \| --throwaway-server] [--visible] [--detach] [--scripted] [--plugins <names\|all>] [--patch <file>,…] [--app <checkout \| ref>] [--source <ref>] [--harness <ref>] [--ttl <min>] [--keep]` | start it, building first if needed (a throwaway always gets plugins/test-driver and plugins/server-log); prints id, home, URL, login URL (with token), pids, log, app path, automation socket, and with `--throwaway` the relay's pid, port, URL and log. `--source <ref>` runs a build of that commit of this repository (plugins, harness pin, app); `--harness` names a harness commit directly; `--simulated [--accounts <names>]` points every model provider at the provider simulator with fresh test accounts (default `standard`: one account per provider route, keys and signed-in Plans; a later account replaces an earlier one of the same route, so `standard,openrouter-low` swaps in a nearly spent OpenRouter key; `none` for none; tools/provider-sim/README.md) |
+| `dsd run <v> [--throwaway \| --throwaway-app \| --throwaway-server] [--visible] [--detach] [--scripted] [--plugins <names\|all>] [--patch <file>,…] [--app <checkout \| ref>] [--source <ref>] [--harness <ref>] [--ttl <min>] [--keep]` | start it, building first if needed (a throwaway always gets plugins/test-driver and plugins/server-log); prints id, home, URL, login URL (with token), pids, log, app path, automation socket, and with `--throwaway` the relay's pid, port, URL and log. `--source <ref>` runs a build of that commit of this repository (plugins, harness pin, app; a named plugin, or under `all` any plugin, that build lacks comes from this checkout, so a topic not integrated yet runs beside the integration); `--harness` names a harness commit directly; `--simulated [--accounts <names>]` points every model provider at the provider simulator with fresh test accounts (default `standard`: one account per provider route, keys and signed-in Plans; a later account replaces an earlier one of the same route, so `standard,openrouter-low` swaps in a nearly spent OpenRouter key; `none` for none; tools/provider-sim/README.md) |
 | `dsd stop [<ref>] [--keep]` | stop it: a named variant's relay job is unloaded (relay and server stop; the LaunchAgent stays and starts again at login or with `dsd run`); a throwaway's home, logs and macOS leftovers are removed unless `--keep` |
 | `dsd sim [status] \| start \| stop \| accounts [<provider>] \| account <provider> <credential> [--set <json>] \| fixtures` | the provider simulator (tools/provider-sim/README.md): one per checkout, sharing one store of accounts, started on demand and left running |
 | `dsd list [--builds]` | variants, what is running, ports, ids; with `--builds`, the builds and what uses each |
@@ -226,23 +230,28 @@ does not choose. Without `-v`, it drives the caller's one running throwaway.
 
 | Layer | Operations |
 |---|---|
-| Server driver (plugins/test-driver, loaded into every throwaway; done) | `health`, `create-session`, `prompt`, `wait`, `command`, `events`, `cancel`, `sessions`, `invoke`, `url` |
-| App automation socket (`apps/macos`, throwaway apps only; done) | `load`, `reload`, `wait-page`, `eval`, `resize`, `view desktop\|mobile`, `appearance light\|dark\|system`, `click`, `type` (real input events in the app's own window), `describe`, `snapshot` (element or page), `window-info`, `app-log`, `quit` |
-| Page helpers (test-driver plugin, browser half) | `open-session`, `new-session`, `archive`, `select-model`, `set-mode`, `enter`, `submit`, `last-card`, `list-sessions` |
+| Server driver (plugins/test-driver, loaded into every throwaway; done) | `health`, `create-session`, `prompt`, `wait`, `command`, `events`, `cancel`, `sessions`, `restart-server`, `invoke`, `url` |
+| App automation socket (`apps/macos`, throwaway apps only; done) | `load`, `reload`, `wait-page`, `eval`, `resize`, `view desktop\|mobile`, `appearance light\|dark\|system`, `click`, `hover`, `type` (real input events in the app's own window), `describe`, `snapshot` (element or page), `window-info`, `app-log`, `opened`, `quit` |
+| Page helpers (test-driver plugin, browser half: `window.__DEEPSEA_TEST_DRIVER__`) | `open-session` (done); `new-session`, `archive`, `select-model`, `set-mode`, `last-card` when a topic needs them |
 
 The server driver's operations:
 
 | Operation | Does |
 |---|---|
 | `health` | pid, port, home, uptime, loader rows that failed or are stuck |
-| `create-session [--cwd <dir>] [--preset <p>] [--model <provider/model[:effort]>] [--title <t>]` | a new session; its id is also remembered as `last` |
-| `prompt <session> <text \| -> [--no-wait] [--steer] [--timeout <s>]` | send a prompt (`-`: from stdin, e.g. a scripted-model script) and, unless `--no-wait`, wait for the turn and summarize it: text, reasoning, tool calls with outcomes and output, command results, how the turn ended |
+| `create-session [--cwd <dir>] [--preset <p>] [--model <provider/model[:effort]>] [--title <t>]` | a new session (blank until prompted); it becomes `last` |
+| `prompt [<session>] <text \| -> [--no-wait] [--steer] [--timeout <s>]` | send a prompt (to `last` when no session is named; on a throwaway with none yet, to a new one) (`-`: from stdin, e.g. a scripted-model script) and, unless `--no-wait`, wait for the turn and summarize it: text, reasoning, tool calls with outcomes and output, command results, how the turn ended |
 | `wait <session> [--since <seq>] [--timeout <s>]` | wait for the agent to go idle, then summarize from `since` |
-| `command <session> <line>` | run a slash command; its result |
+| `command [<session>] <line>` | run a slash command (in `last`, or a new session when there is none); its result, with the session it ran in |
 | `events <session> [--since <seq>] [--types <a,b/*>] [--limit <n>]` | raw session events |
-| `cancel <session>`, `sessions`, `invoke <namespace> <method> [<json>]`, `url` | cancel a turn; the session list; any gateway method; the login URL |
+| `cancel <session>`, `sessions`, `url` | cancel a turn; the session list; the login URL |
+| `invoke <namespace> <method> [<json>]` | any gateway method; the JSON is one object of its arguments keyed by parameter name (`session selectModel '{"request": {…}}'`); a mismatch names the missing and unexpected fields |
+| `restart-server` | (a `--throwaway`, behind a relay) stop its server, as `/reboot` would; the relay starts it again and the operation answers once the new test driver is up |
 
-`<session>` is an id or `last`. `prompt` and `wait` exit 3 when the turn
+`<session>` is an id or `last` (the default where it may be left out): of
+the sessions that have started and the one the last `create-session` made,
+the one updated last, so a session started in the GUI counts too, but the
+GUI's own blank New Session does not. `prompt` and `wait` exit 3 when the turn
 ended with an error (a failed scripted `expect`, say) and 4 when the wait
 timed out, so a shell script can test a turn by its exit status. The plugin's
 README has the HTTP operations and the safety rules (throwaway homes only,
@@ -253,12 +262,13 @@ The app's operations (apps/macos/README.md has the protocol):
 | Operation | Does |
 |---|---|
 | `load <url>`, `reload` | navigate; answers when the page has loaded |
-| `wait-page [--selector <css>] [--text <t>] [--expression <js>] [--timeout <s>] [--settle <ms>]` | until a selector matches, the page shows the text, or the function body returns something truthy |
+| `open-session [<session>]` | show a session in the main view, as a click on its sidebar row would (the test driver's browser half), even one the sidebar does not list |
+| `wait-page [--selector <css>] [--text <t>] [--expression <js>] [--timeout <s>] [--settle <ms>]` | until a selector matches, the page shows the text, or the function body returns something truthy; a timeout reports what the page shows instead (URL, title, open dialogs and menus, the start of its text) |
 | `eval <js \| ->` | run a function body in the page (`await` allowed); its JSON value |
 | `resize <W>x<H>`, `view desktop\|mobile`, `appearance light\|dark\|system` | the window's content size, View ▸ Desktop / Mobile, the app's appearance |
 | `click <css> [--nth <n>] [--clicks <n>]`, `click --text <label> [<css>]`, `click --x <x> --y <y>` | real mouse events at the element's centre or a point; `--text` takes the innermost visible element showing that text, optionally within a selector |
 | `hover <css> [--nth <n>]`, `hover --text <label> [<css>]` | the page events of a pointer arriving on the element (`pointerover`/`enter`, `mouseover`/`enter`, `mousemove`), so controls a script reveals on hover (React's `onMouseEnter`) can then be clicked; CSS `:hover` does not change in a hidden window (WebKit tracks hover only in the active window) |
-| `type <text \| ->`, `type --key <Enter \| Escape \| cmd+k \| …>` | real key events, finished when it answers |
+| `type <text \| -> [--replace]`, `type --key <Enter \| Escape \| cmd+k \| …>` | real key events, finished when it answers; `--replace` first selects what the focused field holds, so the text replaces it (typing appends otherwise) |
 | `describe <css> [--nth <n>]` | the element inspector's record: selector, rect, text, HTML, accessibility, styles, slots, React chain, ancestors, children |
 | `snapshot <css>`, `snapshot --window [--chrome]` | an element snapshot (element, page with it outlined, record) or the page; files under the app's log directory, images by content hash |
 | `window-info`, `app-log [--lines <n>]`, `quit` | the window's frame, screen and modes; the run log; quit (which removes the throwaway) |
@@ -278,7 +288,7 @@ across restarts (above).
    parallel.
 2. `apps/macos` builds, `run --throwaway-app`, the automation socket, the
    app operations of `drive`, `script` (done); the page helpers (test-driver
-   browser half) when a topic needs them.
+   browser half: `open-session` done, others when a topic needs them).
 3. Named variants: `new`, `build --install`, `run`, `stop`, `remove`;
    `run --throwaway` with the relay; `logs` (done).
 4. `topics check | integrate` and `run --source` from deepsea builds (done);

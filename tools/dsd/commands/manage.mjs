@@ -15,6 +15,9 @@ import { lastActivity, listVariants, ownedByCaller, resolveRef } from '../lib/va
 /** dsd stop [<ref>] [--keep] */
 export async function stop(argv) {
   const args = parseArgs(argv)
+  // `-v <ref>`, as dsd drive takes it, works here too.
+  const v = args._.indexOf('-v')
+  if (v >= 0) args._.splice(v, 1)
   onlyFlags(args, ['keep', 'self'])
   if (args._.length > 1) usage('dsd stop [<variant>] [--keep]')
   const variant = resolveRef(args._[0])

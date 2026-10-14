@@ -40,14 +40,23 @@ export function allPlugins(root = REPO) {
  */
 export function selectPlugins(value, root = REPO, { machineWide = false } = {}) {
   if (value === undefined || value === true) return []
+  // From a source build (`--source`), a plugin it does not have comes from this checkout: a
+  // topic's plugin not integrated yet runs beside the integration.
+  const own = name => root !== REPO && !existsSync(join(pluginsDir(root), name, 'package.json')) && existsSync(join(pluginsDir(REPO), name, 'package.json'))
+  const from = (name) => {
+    if (!own(name)) return describe(name, root)
+    note(`plugins/${name} from this checkout (${REPO}): the source build has no such plugin`)
+    return describe(name, REPO)
+  }
   if (value === 'all') {
-    const picked = allPlugins(root).map(name => describe(name, root))
+    const extra = root === REPO ? [] : allPlugins(REPO).filter(own)
+    const picked = [...allPlugins(root).map(name => describe(name, root)), ...extra.map(from)]
     if (machineWide) return picked
     const skipped = picked.filter(p => p.machineWide)
     if (skipped.length) note(`leaving out machine-wide plugins (name them to include): ${skipped.map(p => `${p.name} (${p.machineWide})`).join(', ')}`)
     return picked.filter(p => !p.machineWide)
   }
-  return String(value).split(',').map(s => s.trim()).filter(Boolean).map(name => describe(name, root))
+  return String(value).split(',').map(s => s.trim()).filter(Boolean).map(from)
 }
 
 /** The newest modification time among a plugin's own files (not dependencies, output or tests). */

@@ -58,6 +58,8 @@ export function scan(lines, patterns) {
   const hits = []
   for (const { file, line, text } of lines) {
     if (EXEMPT.has(file)) continue
+    // A line that must keep its text (a test fixture's fake path or address) says so.
+    if (text.includes(ALLOW_MARK)) continue
     for (const [pattern, reason] of patterns) {
       const m = pattern.exec(text)
       if (m) hits.push({ file, line, match: m[0], reason })
@@ -67,6 +69,8 @@ export function scan(lines, patterns) {
 }
 
 const HOOK_MARK = '# installed by dsd check --install-hook'
+/** A comment on an added line that exempts it, for text a test needs as it is. */
+export const ALLOW_MARK = 'dsd-check: allow'
 
 /** Install the pre-commit hook that runs `dsd check --staged` (shared by every worktree). */
 export function installHook() {
@@ -98,5 +102,5 @@ export async function check(argv) {
   if (args.json) printJson({ lines: lines.length, hits })
   else if (hits.length === 0) note(`check: clean (${lines.length} added lines)`)
   else process.stderr.write(`${hits.map(h => `${h.file}:${h.line}: ${h.match}  (${h.reason})`).join('\n')}\n`)
-  if (hits.length) throw new DsdError(`check: ${hits.length} hit${hits.length === 1 ? '' : 's'}; fix them, or commit with --no-verify only if every hit is intended`)
+  if (hits.length) throw new DsdError(`check: ${hits.length} hit${hits.length === 1 ? '' : 's'}; fix them (real hosts, accounts, paths: use the placeholders in AGENTS.md), or, for text a test needs as it is, end the line with a \`${ALLOW_MARK}\` comment. Never commit with --no-verify`)
 }

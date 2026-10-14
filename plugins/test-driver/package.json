@@ -2,26 +2,45 @@
   "name": "@deepsea/test-driver",
   "version": "0.1.0",
   "private": true,
-  "description": "DeepSea plugin: the server half of `dsd drive`. JSON over HTTP on a throwaway server's own port to create sessions, run commands and prompts, wait for turns and read their events, for agents testing plugins from a shell.",
+  "description": "DeepSea plugin: `dsd drive`'s halves. Server: JSON over HTTP on a throwaway server's own port to create sessions, run commands and prompts, wait for turns and read their events. Browser: what only the page can do (open a session), for the app's automation channel.",
   "license": "MIT",
   "type": "module",
   "main": "index.js",
   "exports": {
     ".": "./index.js",
+    "./client": "./lib/client.js",
     "./driver": "./driver.mjs",
     "./package.json": "./package.json"
   },
-  "files": ["index.js", "driver.mjs", "cordis.patch.yml"],
+  "files": [
+    "index.js",
+    "driver.mjs",
+    "lib/client.js",
+    "lib/client.js.map",
+    "cordis.patch.yml"
+  ],
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
     }
   },
   "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit",
     "test": "node --test tests/*.test.mjs",
-    "check": "node --check index.js && node --test tests/*.test.mjs"
+    "check": "node --check index.js && node --test tests/*.test.mjs",
+    "prepare": "node build.mjs"
   },
   "dependencies": {
     "@deepseek-ai/dsh-home-paths": "link:../../harness/packages/util/home-paths"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "link:../../harness/vendor/cordis",
+    "@deepseek-ai/dsh-client-ui-workspace": "link:../../harness/packages/client/ui-workspace",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.2"
   }
 }
