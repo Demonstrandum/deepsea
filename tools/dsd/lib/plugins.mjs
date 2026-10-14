@@ -8,7 +8,7 @@
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { REPO } from './paths.mjs'
+import { extrasDir, REPO } from './paths.mjs'
 import { DsdError, note, usage } from './util.mjs'
 
 const pluginsDir = (root = REPO) => join(root, 'plugins')
@@ -17,7 +17,7 @@ const pluginsDir = (root = REPO) => join(root, 'plugins')
 function describe(name, root = REPO) {
   const dir = join(pluginsDir(root), name)
   const file = join(dir, 'package.json')
-  if (!existsSync(file)) usage(`no plugin "${name}" in ${pluginsDir(root)}`)
+  if (!existsSync(file)) usage(`no plugin "${name}" in ${pluginsDir(root)}${root === extrasDir() ? '' : ` (or the extras, ${pluginsDir(extrasDir())})`}`)
   const pkg = JSON.parse(readFileSync(file, 'utf8'))
   return {
     name, dir, pkg,
@@ -41,17 +41,21 @@ export function allPlugins(root = REPO) {
  */
 export function selectPlugins(value, root = REPO, { machineWide = false } = {}) {
   if (value === undefined || value === true) return []
-  // From a source build (`--source`), a plugin it does not have comes from this checkout: a
-  // topic's plugin not integrated yet runs beside the integration.
-  const own = name => root !== REPO && !existsSync(join(pluginsDir(root), name, 'package.json')) && existsSync(join(pluginsDir(REPO), name, 'package.json'))
+  // A plugin the source build (`--source`) does not have comes from this checkout (a topic's
+  // plugin not integrated yet runs beside the integration), else from the extras repository
+  // (private plugins, never in a build of this one).
+  const has = (dir, name) => existsSync(join(pluginsDir(dir), name, 'package.json'))
+  const extras = extrasDir()
+  const own = name => root !== REPO && !has(root, name) && has(REPO, name)
+  const extra = name => !has(root, name) && !own(name) && has(extras, name)
   const from = (name) => {
-    if (!own(name)) return describe(name, root)
-    note(`plugins/${name} from this checkout (${REPO}): the source build has no such plugin`)
-    return describe(name, REPO)
+    if (own(name)) { note(`plugins/${name} from this checkout (${REPO}): the source build has no such plugin`); return describe(name, REPO) }
+    if (extra(name)) return describe(name, extras)
+    return describe(name, root)
   }
   if (value === 'all') {
-    const extra = root === REPO ? [] : allPlugins(REPO).filter(own)
-    const picked = [...allPlugins(root).map(name => describe(name, root)), ...extra.map(from)]
+    const more = [...(root === REPO ? [] : allPlugins(REPO).filter(own)), ...allPlugins(extras).filter(extra)]
+    const picked = [...allPlugins(root).map(name => describe(name, root)), ...more.map(from)]
     if (machineWide) return picked
     const skipped = picked.filter(p => p.machineWide)
     if (skipped.length) note(`leaving out machine-wide plugins (name them to include): ${skipped.map(p => `${p.name} (${p.machineWide})`).join(', ')}`)

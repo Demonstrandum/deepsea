@@ -24,6 +24,7 @@ base topic/base
 topic topic/fix-scheduler-symbol
 topic topic/fix-open-state-watchdog
 topic topic/fix-scroll-pin
+topic topic/provider-errors
 
 # DeepSea identity: default home ~/.deepsea/release
 topic topic/deepsea-home

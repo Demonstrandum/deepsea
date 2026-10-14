@@ -3,7 +3,7 @@
  */
 import { existsSync, lstatSync, readdirSync, readlinkSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { buildPaths, buildReady, buildRecord, ensureBuild, harnessRepo, linkHarness, readLock, resolveHarnessCommit } from '../lib/harness.mjs'
+import { buildPaths, buildReady, buildRecord, ensureBuild, harnessRepo, linkExtras, linkHarness, readLock, resolveHarnessCommit } from '../lib/harness.mjs'
 import { buildsDir, mainCheckout, REPO } from '../lib/paths.mjs'
 import { listening } from '../lib/install.mjs'
 import { runningAs } from '../lib/processes.mjs'
@@ -183,5 +183,8 @@ export async function link(argv) {
   const args = parseArgs(argv)
   onlyFlags(args, [])
   if (args._.length > 0) usage('dsd link')
-  printJson(await linkHarness())
+  const linked = await linkHarness()
+  // The main checkout's pin is the one the extras' plugins build against.
+  const extras = REPO === mainCheckout() ? linkExtras(linked.build) : undefined
+  printJson({ ...linked, ...(extras ? { extras } : {}) })
 }

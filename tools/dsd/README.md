@@ -71,7 +71,12 @@ patch (`cordis.patch.yml`, so every plugin needs one), and the Plugins panel
 lists it as an installed bundle, with its card and switches. dsd owns the
 profile's `@deepsea/*` packages; anything else installed there stays. A
 plugin never installed or built is installed and built first. `all` leaves
-machine-wide plugins (plugins/AGENTS.md) out; naming one includes it.
+machine-wide plugins (plugins/AGENTS.md) out; naming one includes it. A
+name not found in the source build or this checkout is looked up in the
+**extras**, the private repository of plugins not published with this one
+(`<main checkout>-extras`, or `DEEPSEA_EXTRAS`; LAYOUT.md §3), and `all`
+includes them; the main checkout's `dsd link` points the extras' `harness`
+at its pinned build.
 `--patch` files come after every bundle layer, so a row there replaces a
 plugin's whole config. The panel's **Uninstall** takes a plugin out of that
 variant until its next `dsd build` (a throwaway: until it is thrown away).
@@ -277,7 +282,7 @@ The app's operations (apps/macos/README.md has the protocol):
 | `hover <css> [--nth <n>]`, `hover --text <label> [<css>]` | the page events of a pointer arriving on the element (`pointerover`/`enter`, `mouseover`/`enter`, `mousemove`), so controls a script reveals on hover (React's `onMouseEnter`) can then be clicked; CSS `:hover` does not change in a hidden window (WebKit tracks hover only in the active window) |
 | `type <text \| -> [--replace]`, `type --key <Enter \| Escape \| cmd+k \| …>` | real key events, finished when it answers; `--replace` first selects what the focused field holds, so the text replaces it (typing appends otherwise) |
 | `describe <css> [--nth <n>]` | the element inspector's record: selector, rect, text, HTML, accessibility, styles, slots, React chain, ancestors, children |
-| `snapshot <css>`, `snapshot --window [--chrome]` | an element snapshot (element, page with it outlined, record) or the page; files under the app's log directory, images by content hash |
+| `snapshot <css>`, `snapshot --window [--chrome]` | an element snapshot (element, page with it outlined, record) or the page; files under the app's log directory, images by content hash. WebKit's snapshot does not render `backdrop-filter`: a translucent, blurred surface (menus, popups) shows what is behind it sharply, as it never does on screen |
 | `window-info`, `app-log [--lines <n>]`, `quit` | the window's frame, screen and modes; the run log; quit (which removes the throwaway) |
 | `opened [--clear]` | URLs the app opened, or would have, outside itself: a hidden test build never opens a browser, a sign-in page or Preview, it records them |
 

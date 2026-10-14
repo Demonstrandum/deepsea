@@ -48,6 +48,14 @@ export function machineLogDir() {
   return join(logRoot(), ROOT_NAME)
 }
 
+/**
+ * The private extras repository (plugins that are not published with this
+ * one): `<main checkout>-extras`, or `DEEPSEA_EXTRAS`; it may not exist.
+ */
+export function extrasDir() {
+  return resolve(process.env.DEEPSEA_EXTRAS ?? `${mainCheckout()}-extras`)
+}
+
 /** The worktree directory: `<main checkout>-worktrees`, or `DEEPSEA_WORKTREES`. */
 export function worktreesDir() {
   return resolve(process.env.DEEPSEA_WORKTREES ?? `${mainCheckout()}-worktrees`)

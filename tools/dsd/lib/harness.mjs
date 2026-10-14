@@ -12,7 +12,7 @@ import { spawn } from 'node:child_process'
 import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { openRunLog } from './logs.mjs'
-import { buildsDir, machineLogDir, mainCheckout, REPO, ROOT_NAME } from './paths.mjs'
+import { buildsDir, extrasDir, machineLogDir, mainCheckout, REPO, ROOT_NAME } from './paths.mjs'
 import { alive } from './processes.mjs'
 import { DsdError, git, isoLocal, note, sleep, usage } from './util.mjs'
 
@@ -176,4 +176,24 @@ export async function linkHarness(checkout = REPO) {
   symlinkSync(dir, path)
   note(`harness -> ${dir}`)
   return { link: path, build: dir, commit }
+}
+
+/**
+ * Point the extras repository's `harness` (its plugins' `link:` dependencies
+ * go through it) at a build, when the repository exists. The main checkout's
+ * `dsd link` keeps it on the main checkout's pin.
+ */
+export function linkExtras(build) {
+  const extras = extrasDir()
+  if (!existsSync(join(extras, 'plugins'))) return undefined
+  const path = join(extras, 'harness')
+  try {
+    if (readlinkSync(path) === build) return path
+    unlinkSync(path)
+  } catch (error) {
+    if (error.code !== 'ENOENT' && error.code !== 'EINVAL') throw error
+  }
+  symlinkSync(build, path)
+  note(`extras: harness -> ${build}`)
+  return path
 }

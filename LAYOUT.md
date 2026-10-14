@@ -142,6 +142,13 @@ harness            git-ignored link to the pinned commit's build (made by dsd)
 private/           machine-local, git-ignored
 ```
 
+Beside it, `<checkout>-extras/` (default `~/ds/deepsea-extras`, or
+`DEEPSEA_EXTRAS`): a separate, private repository of plugins that
+are not published with this one, in the same `plugins/<name>/` layout
+(packages `@deepsea/<name>`), with a `harness` link the main checkout's
+`dsd link` keeps on its pin. dsd finds a plugin there when this repository
+has none of that name (tools/dsd/README.md).
+
 The native apps live in `apps/`, not inside a plugin: they are the product's
 shell, used by every variant whether or not any particular plugin is
 installed.
