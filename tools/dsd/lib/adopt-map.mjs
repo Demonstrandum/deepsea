@@ -2,7 +2,8 @@
  * What `dsd adopt` knows about an old DSH home. DSH's own entries are here;
  * the old plugins' names, rows and state files are a table of the machine
  * the old homes are on (their names are retired: they stay out of tracked
- * files), `<main checkout>/private/adopt-map.mjs` or `DEEPSEA_ADOPT_MAP`.
+ * files), `adopt-map.mjs` in the extras repository (LAYOUT.md §3), else
+ * `<main checkout>/private/adopt-map.mjs`, or `DEEPSEA_ADOPT_MAP`.
  * Without one, adopt carries DSH's own state and reports every old plugin's
  * entry as unknown.
  *
@@ -11,7 +12,9 @@
  *   packages      old package → { plugin: <DeepSea plugin dir> | null, rows: [<old row ids>], note? }
  *   translations  old row id → { keep: [<config keys the DeepSea plugin has with the same meaning>],
  *                 extra?(config) → more keys, drop?(key, value), gone?: <why the rest is not carried> }
- *   settings      old settings.yaml section → a note (the section is copied, and reported)
+ *   settings      old settings.yaml section → a note (the section is copied, and reported), or
+ *                 { row: <DeepSea row id>, keys: [<its keys the row's config takes>], note? }: those
+ *                 keys go into that row of the new profile patch (the section is copied too)
  *   color         { row, key }: the old row whose config holds the instance's #rrggbb colour
  *   entries       old top-level entries (by `name` or `match`) → { tree: <dir in the new home>,
  *                 files?: { <file at the tree's top>: <its own place> } } | { file, secret?: 'token' | 'servers' }
@@ -20,7 +23,7 @@
 import { existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { mainCheckout } from './paths.mjs'
+import { extrasDir, mainCheckout } from './paths.mjs'
 import { DsdError } from './util.mjs'
 
 /** Default bundles of a harness profile: never reinstalled by adopt. */
@@ -45,8 +48,8 @@ export const DSH_ENTRIES = [
   { name: '.anonymous-user-id', skip: 'per home; the new home makes its own' },
 ]
 
-/** The table at `path` (default: DEEPSEA_ADOPT_MAP, else private/adopt-map.mjs), normalized; `{}` when there is none. */
-export async function loadAdoptMap(path = process.env.DEEPSEA_ADOPT_MAP ?? join(mainCheckout(), 'private', 'adopt-map.mjs')) {
+/** The table at `path` (default: DEEPSEA_ADOPT_MAP, else the extras' adopt-map.mjs, else private/adopt-map.mjs), normalized; `{}` when there is none. */
+export async function loadAdoptMap(path = process.env.DEEPSEA_ADOPT_MAP ?? [join(extrasDir(), 'adopt-map.mjs'), join(mainCheckout(), 'private', 'adopt-map.mjs')].find(existsSync) ?? join(extrasDir(), 'adopt-map.mjs')) {
   if (!existsSync(path)) return normalizeMap({}, undefined)
   try {
     return normalizeMap(await import(pathToFileURL(resolve(path)).href), resolve(path))

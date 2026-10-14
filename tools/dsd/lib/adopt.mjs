@@ -302,13 +302,22 @@ export function adopt(o) {
   // --- settings.yaml, as it is: DSH 0.2 moves it into the profile patch at its first start (renaming it
   // settings.yaml.imported). Sections the new profile has a row of its own for stay out (a conflict; in a
   // throwaway, dsd's rows win); sections of plugins that are gone are reported.
+  const settingsInto = {}
   const settingsPath = join(source, 'settings.yaml')
   if (existsSync(settingsPath)) {
     const text = readFileSync(settingsPath, 'utf8')
     const sections = [...text.matchAll(/^([^\s#:][^:]*):/gm)].map(x => x[1].trim())
     for (const section of sections) {
-      const note = map.settings[section] ?? (map.packages[section] || map.rows[section] ? 'an old plugin\'s section' : undefined)
+      const rule = map.settings[section]
+      const note = (typeof rule === 'object' ? rule?.note ?? `its ${rule.keys.join(', ')} go to ${rule.row}` : rule) ?? (map.packages[section] || map.rows[section] ? 'an old plugin\'s section' : undefined)
       if (note) report.settings.oldSections.push({ section, note })
+      // A section whose keys a DeepSea row takes: they go into that row of the new profile patch.
+      if (typeof rule === 'object' && rule?.row) {
+        let parsed
+        try { parsed = Y.parse(text)?.[section] } catch { /* unreadable: reported as copied only */ }
+        const keys = Object.fromEntries((rule.keys ?? []).filter(k => parsed && typeof parsed === 'object' && parsed[k] !== undefined && parsed[k] !== '').map(k => [k, parsed[k]]))
+        if (Object.keys(keys).length) settingsInto[rule.row] = { ...settingsInto[rule.row], ...keys, from: section }
+      }
     }
     const rec = m.files['settings.yaml']
     const imported = existsSync(join(target, 'settings.yaml.imported'))
@@ -344,7 +353,7 @@ export function adopt(o) {
 
   // --- The profile: third-party bundles, then its own patch layer's rows (a third-party row only with its bundle).
   const missingBundles = adoptBundles({ source, target, report, installBundle: o.installBundle, dryRun, plugins: o.plugins, map })
-  adoptRows({ source, target, io, m, report, conflict, Y, plugins: o.plugins, throwaway: Boolean(o.throwaway), missingBundles, map })
+  adoptRows({ source, target, io, m, report, conflict, Y, plugins: o.plugins, throwaway: Boolean(o.throwaway), missingBundles, map, settingsInto })
   for (const profile of readdirSafe(join(source, 'profiles'))) if (profile !== 'web') report.unknown.push({ what: join('profiles', profile), bytes: sizeOf(join(source, 'profiles', profile)) })
 
   // --- Old plugins' state, into the DeepSea plugins' places; everything else reported.
@@ -606,12 +615,17 @@ const bare = text => text.split('\n').filter(l => !/^\s*#/.test(l) && l.trim() !
  * plugins (DeepSea bundles now) translated where the DeepSea plugin has the
  * same settings (lib/adopt-map.mjs), else dropped and reported.
  */
-function adoptRows({ source, target, io, m, report, conflict, Y, plugins, throwaway, missingBundles, map }) {
+function adoptRows({ source, target, io, m, report, conflict, Y, plugins, throwaway, missingBundles, map, settingsInto = {} }) {
   const srcPath = join(source, 'profiles', 'web', 'cordis.patch.yml')
-  if (!existsSync(srcPath)) return
+  const fromSettings = (rowId) => {
+    const { from, ...keys } = settingsInto[rowId] ?? {}
+    return { keys, from }
+  }
+  const settingsUsed = new Set()
+  if (!existsSync(srcPath) && Object.keys(settingsInto).length === 0) return
   const parseRow = text => { try { return Y.parse(text, { customTags: [JS_TAG] })?.[0] } catch { return undefined } }
   const wanted = []
-  for (const text of splitRows(readFileSync(srcPath, 'utf8')).rows) {
+  for (const text of existsSync(srcPath) ? splitRows(readFileSync(srcPath, 'utf8')).rows : []) {
     const value = parseRow(text)
     if (value === undefined) { report.rows.dropped.push({ row: text.split('\n').find(l => l.startsWith('-')), why: 'not readable as YAML' }); continue }
     if (Array.isArray(value.insert)) {
@@ -648,6 +662,9 @@ function adoptRows({ source, target, io, m, report, conflict, Y, plugins, throwa
     Object.assign(kept, rule.extra?.(config) ?? {})
     const left = Object.keys(config).filter(key => !(key in kept) && key !== 'traceFile')
     const newId = plugins.get(plugin).rows?.[0] ?? `deepsea-${plugin}`
+    // Settings of an old settings.yaml section this row takes (lib/adopt-map.mjs `settings`).
+    Object.assign(kept, fromSettings(newId).keys)
+    settingsUsed.add(newId)
     const row = { id: newId, ...(value.disabled !== undefined ? { disabled: value.disabled } : {}), ...(Object.keys(kept).length ? { config: kept } : {}) }
     if (Object.keys(row).length === 1) {
       report.rows.dropped.push({ row: id, why: rule.gone ?? 'nothing the DeepSea plugin has the same setting for', ...(left.length ? { settings: left } : {}) })
@@ -655,6 +672,15 @@ function adoptRows({ source, target, io, m, report, conflict, Y, plugins, throwa
     }
     const out = `# ${id}, adopted\n${Y.stringify([row], { customTags: [JS_TAG] }).trimEnd()}`
     wanted.push({ key: `id:${newId}`, text: out, outcome: { translated: { from: id, to: newId, ...(left.length ? { notCarried: left, why: rule.gone ?? 'no such setting in the DeepSea plugin' } : {}) } } })
+  }
+  // A row that only settings.yaml configured (no old profile row): a row of its own.
+  for (const rowId of Object.keys(settingsInto)) {
+    if (settingsUsed.has(rowId)) continue
+    const { keys, from } = fromSettings(rowId)
+    const plugin = [...plugins].find(([, p]) => (p.rows ?? []).includes(rowId))?.[0]
+    if (plugin === undefined) { report.rows.dropped.push({ row: rowId, why: `settings.yaml ${from}: the plugin with this row is not in this variant`, settings: Object.keys(keys) }); continue }
+    const out = `# settings.yaml ${from}, adopted\n${Y.stringify([{ id: rowId, config: keys }], { customTags: [JS_TAG] }).trimEnd()}`
+    wanted.push({ key: `id:${rowId}`, text: out, outcome: { translated: { from: `settings.yaml ${from}`, to: rowId } } })
   }
   const done = (row) => {
     if (row.outcome.carried) report.rows.carried.push(row.outcome.carried)

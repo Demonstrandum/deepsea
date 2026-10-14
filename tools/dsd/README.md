@@ -248,7 +248,7 @@ translated, skipped and in conflict, with sizes, and nothing is touched.
 DSH's own state is known to dsd. The old plugins' names (packages, rows,
 settings sections, state files) are retired names, so they are a table of the
 machine the old homes are on, not part of this repository:
-`private/adopt-map.mjs` of the main checkout (or `DEEPSEA_ADOPT_MAP`), in
+`adopt-map.mjs` of the extras repository (else `private/adopt-map.mjs` of the main checkout, or `DEEPSEA_ADOPT_MAP`), in
 the shape `lib/adopt-map.mjs` documents. Without it, everything an old plugin
 left is reported as unknown and its rows are carried as they are.
 

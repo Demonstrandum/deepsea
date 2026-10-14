@@ -127,7 +127,7 @@ function oldHome(name) {
   return home
 }
 
-/** The old world's table (the shape of private/adopt-map.mjs), with made-up old names. */
+/** The old world's table (the shape of the extras' adopt-map.mjs), with made-up old names. */
 const MAP = noHarness ? undefined : normalizeMap({
   packages: {
     'old-identity-pkg': { plugin: 'variant-identity', rows: ['old-identity'] },
@@ -141,7 +141,7 @@ const MAP = noHarness ? undefined : normalizeMap({
     'old-browser': { keep: ['subagents', 'chrome'], extra: config => (config.traceFile ? { trace: true } : {}) },
     'old-identity': { keep: [], gone: 'the variant gives the colour' },
   },
-  settings: { 'old-kernel': 'the plugin reads another section now' },
+  settings: { 'old-kernel': { row: 'deepsea-kernel', keys: ['kernelPath'] } },
   color: { row: 'old-identity', key: 'brandColor' },
   entries: [
     { name: 'billing', tree: 'plugins/billing', what: 'billing store' },
@@ -160,6 +160,7 @@ const PLUGINS = new Map([
   ['browser', { rows: ['deepsea-browser'], presets: [] }],
   ['billing', { rows: ['deepsea-billing'], presets: [] }],
   ['no-global-tools', { rows: ['deepsea-no-global-tools', 'deepsea-preset-minimal-no-tools'], presets: ['minimal-no-tools'] }],
+  ['kernel', { rows: ['deepsea-kernel'], presets: [] }],
 ])
 
 /** Every file under a directory with a hash of its content and its mtime. */
@@ -207,6 +208,9 @@ test('first adopt: sessions, registry, attachments, settings, keys, plugin state
   // settings.yaml as it is; the old plugin's section reported.
   assert.equal(read(target, 'settings.yaml'), read(source, 'settings.yaml'))
   assert.deepEqual(report.settings.oldSections.map(s => s.section), ['old-kernel'])
+  // A settings section a DeepSea row takes: its keys go into that row of the profile patch.
+  assert.match(read(target, 'profiles', 'web', 'cordis.patch.yml'), /- id: deepsea-kernel\n\s+config:\n\s+kernelPath: \/Applications\/Kernel\.app/)
+  assert.ok(report.rows.translated.some(t => t.from === 'settings.yaml old-kernel' && t.to === 'deepsea-kernel'))
   // API keys, no sign-ins (no --move-sign-ins), never the browser-session secret; 0600.
   const creds = Y.parse(read(target, '.credentials.yaml'))
   assert.deepEqual(creds.refs, { DEEPSEEK_API_KEY: 'fake-deepseek-key' })
@@ -259,7 +263,7 @@ test('profile rows: harness and third-party rows carried, old plugins translated
   assert.deepEqual(split, { header: '# h', rows: ['# a\n- id: a', '- id: b'] })
 
   // Again: nothing changes. Then the person edits an adopted row in the new home and the old row changes too: a conflict.
-  assert.deepEqual(run(source, target).report.rows.unchanged.length, 5)
+  assert.deepEqual(run(source, target).report.rows.unchanged.length, 6) // five rows and the kernel row from settings.yaml
   writeFileSync(join(target, 'profiles', 'web', 'cordis.patch.yml'), text.replace('targetWords: 5', 'targetWords: 7'))
   writeFileSync(join(source, 'profiles', 'web', 'cordis.patch.yml'), read(source, 'profiles', 'web', 'cordis.patch.yml').replace('targetWords: 5', 'targetWords: 6'))
   const again = run(source, target).report
