@@ -325,6 +325,8 @@ export function adopt(o) {
     // In a throwaway, dsd's rows that decide how it behaves win; the rest merge (DSH's import merges a
     // section into its row: old providers join the simulated ones).
     const clash = sections.filter(section => own.has(LEGACY_SECTIONS[section] ?? section) && (!o.throwaway || THROWAWAY_ROWS.has(section)))
+    // Sections whose keys went into a DeepSea row stay out of the copy (DSH would warn it has no entry for them).
+    const moved = sections.filter(section => typeof map.settings[section] === 'object' && map.settings[section]?.row)
     if (o.throwaway && /^\s*apiKey\s*:\s*\S/m.test(text)) report.skipped.push({ what: 'settings.yaml', why: 'holds an API key inline; a throwaway never gets one' })
     else if (rec && imported && !existsSync(join(target, 'settings.yaml'))) {
       const s = statOf(settingsPath)
@@ -335,7 +337,7 @@ export function adopt(o) {
         if (o.throwaway) report.skipped.push({ what: `settings.yaml ${section}`, why: "the throwaway's own row stays" })
         else conflict(`settings.yaml ${section}`, 'the new profile has its own row for this section; left out of the copy')
       }
-      const content = clash.length ? () => withoutSections(text, clash) : undefined
+      const content = clash.length || moved.length ? () => withoutSections(text, [...clash, ...moved]) : undefined
       syncFile({ srcPath: settingsPath, destPath: join(target, 'settings.yaml'), key: 'settings.yaml', category: 'settings.yaml', content })
       report.settings.note = 'DSH 0.2 imports settings.yaml into the profile patch at its first start (settings.yaml.imported); a section with no plugin entry stays only in that file'
     }
@@ -587,9 +589,11 @@ function removeFromOldCredentials(path, text) {
 
 /** Split a patch file into its header and top-level rows (each with the comment lines just above it). */
 export function splitRows(text) {
-  const lines = String(text).split('\n')
+  // The harness's new profile patch is an empty flow list (`[]`, under its comment): no rows, and not
+  // something block rows can follow.
+  const lines = String(text).split('\n').filter(line => !/^\s*\[\]\s*(#.*)?$/.test(line))
   const starts = lines.flatMap((line, i) => (/^-(\s|$)/.test(line) ? [i] : []))
-  if (starts.length === 0) return { header: String(text).trimEnd(), rows: [] }
+  if (starts.length === 0) return { header: lines.join('\n').trimEnd(), rows: [] }
   // A row begins at its `- ` line, or at the comment lines right above it (no blank line between).
   const begins = starts.map((s) => { let b = s; while (b > 0 && /^#/.test(lines[b - 1])) b--; return b })
   // A row ends at its last line of YAML: a comment paragraph after it belongs to no row and is left out.

@@ -206,7 +206,8 @@ test('first adopt: sessions, registry, attachments, settings, keys, plugin state
   assert.ok(existsSync(join(target, 'attachments', 'v1', 'objects', 'ab', 'abcdef')))
   assert.equal(existsSync(join(target, 'attachments', 'v1', 'tmp')), false)
   // settings.yaml as it is; the old plugin's section reported.
-  assert.equal(read(target, 'settings.yaml'), read(source, 'settings.yaml'))
+  // As it is, but old-kernel: its keys went into its DeepSea row.
+  assert.equal(read(target, 'settings.yaml').trimEnd(), 'agent-default-model:\n  provider: anthropic-oauth\n  model: claude-opus-5-5')
   assert.deepEqual(report.settings.oldSections.map(s => s.section), ['old-kernel'])
   // A settings section a DeepSea row takes: its keys go into that row of the profile patch.
   assert.match(read(target, 'profiles', 'web', 'cordis.patch.yml'), /- id: deepsea-kernel\n\s+config:\n\s+kernelPath: \/Applications\/Kernel\.app/)
@@ -359,7 +360,7 @@ test('a throwaway gets no credentials, backups or access tokens', { skip }, () =
   assert.ok(second.rows.dropped.some(d => d.row === 'id:session-title-llm'))
   assert.match(read(own, 'profiles', 'web', 'cordis.patch.yml'), /disabled: true/)
   assert.doesNotMatch(read(own, 'settings.yaml'), /agent-default-model/)
-  assert.match(read(own, 'settings.yaml'), /old-kernel/)
+  assert.doesNotMatch(read(own, 'settings.yaml'), /old-kernel/)
   assert.ok(second.skipped.some(s => s.what === 'settings.yaml agent-default-model'))
 })
 
@@ -369,7 +370,8 @@ test('settings.yaml: sections the new profile has rows for stay out; after DSH i
   put(join(target, 'profiles', 'web', 'cordis.patch.yml'), '- id: agent-default-model\n  config:\n    provider: openai\n    model: gpt-6-sol\n')
   const { report } = run(source, target)
   assert.ok(report.conflicts.some(c => c.what === 'settings.yaml agent-default-model'))
-  assert.equal(read(target, 'settings.yaml'), 'old-kernel:\n  kernelPath: /Applications/Kernel.app\n')
+  // old-kernel's keys went into its DeepSea row, so the section stays out of the copy.
+  assert.doesNotMatch(read(target, 'settings.yaml'), /old-kernel/)
   // DSH 0.2 at its first start: settings.yaml → settings.yaml.imported. A later change in the old home is a conflict.
   writeFileSync(join(target, 'settings.yaml.imported'), read(target, 'settings.yaml'))
   rmSync(join(target, 'settings.yaml'))
@@ -420,4 +422,14 @@ test('dsd adopt: --move-sign-ins refuses --throwaway; a variant or --throwaway, 
   assert.match(refused.stderr, /--move-sign-ins refuses --throwaway/)
   assert.equal(call(source, 'personal', '--throwaway').status, 2)
   assert.equal(call(source, 'personal', '--simulated').status, 2)
+})
+
+test('profile rows after the harness template: its empty `[]` goes, so the patch stays one YAML list', { skip }, () => {
+  const source = oldHome('template')
+  const target = join(root, 'deepsea', 'template')
+  put(join(target, 'profiles', 'web', 'cordis.patch.yml'), '# Your patch layer for this dsh profile, applied after every bundle layer:\n# a top-level YAML array of loader patch entries.\n[]\n')
+  run(source, target)
+  const text = read(target, 'profiles', 'web', 'cordis.patch.yml')
+  assert.doesNotMatch(text, /^\[\]$/m)
+  assert.ok(Array.isArray(Y.parse(text)) && Y.parse(text).length > 0)
 })
