@@ -10,14 +10,16 @@
     ".": "./index.js",
     "./client": "./lib/client.js",
     "./driver": "./driver.mjs",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
   },
   "files": [
     "index.js",
     "driver.mjs",
     "lib/client.js",
     "lib/client.js.map",
-    "cordis.patch.yml"
+    "cordis.patch.yml",
+    "locale/*.json"
   ],
   "dsh": {
     "bundle": {

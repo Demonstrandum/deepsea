@@ -8,12 +8,14 @@
   "main": "index.js",
   "exports": {
     ".": "./index.js",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
   },
   "files": [
     "index.js",
     "adapter.mjs",
-    "cordis.patch.yml"
+    "cordis.patch.yml",
+    "locale/*.json"
   ],
   "dsh": {
     "bundle": {

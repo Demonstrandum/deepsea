@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Server Log",
+    "description": "Captures every plugin's log messages in the server log."
+  }
+}
