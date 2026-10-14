@@ -12,7 +12,8 @@
             }
           }
         }
-      }
+      },
+      "standard": true
     },
     "openrouter-low": {
       "provider": "openrouter",

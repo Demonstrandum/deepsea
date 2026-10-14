@@ -20,6 +20,8 @@ import { readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { harnessRepo, readLock, takeLock } from '../lib/harness.mjs'
 import { checkedOutAt, mergeTrees, moveBranch, planIntegration } from '../lib/integrate.mjs'
+import { restack } from '../lib/restack.mjs'
+import { execFileSync } from 'node:child_process'
 import { buildsDir, mainCheckout, worktreesDir } from '../lib/paths.mjs'
 import { DsdError, git, note, onlyFlags, parseArgs, printJson, usage } from '../lib/util.mjs'
 
@@ -140,12 +142,48 @@ async function integrateOrCheck(sections, deepseaRows, { move, dry }) {
   if (failed) throw new DsdError(missing.length ? `missing harness topics: ${missing.join('; ')}` : `conflict: ${report.repos.filter(r => r.conflict).map(r => `${r.repo} ${r.conflict.topic} (${r.conflict.files.join(', ')})`).join('; ')}`)
 }
 
+/**
+ * Rebase every topic onto its parent's current tip (lib/restack.mjs): the
+ * harness topics in topic-list order, then this repository's onto its base;
+ * each rebased worktree of this repository is relinked to its pin's build.
+ */
+async function rebaseTopics(sections, which, dry) {
+  const out = {}
+  if (which !== 'deepsea') {
+    const h = sections.harness
+    out.harness = restack(harnessRepo(readLock()), h.topics.map(t => ({ topic: t.name, parent: t.parent ?? h.base })), { dry })
+  }
+  if (which !== 'harness') {
+    const main = mainCheckout()
+    const base = sections.deepsea?.base ?? 'topic/base'
+    const branches = git(main, ['for-each-ref', '--format=%(refname:short)', 'refs/heads/topic/']).split('\n').filter(b => b && b !== base)
+    out.deepsea = restack(main, branches.map(topic => ({ topic, parent: base })), { dry })
+    for (const row of out.deepsea.filter(r => r.state === 'rebased')) {
+      const path = join(worktreesDir(), short(row.topic))
+      try { execFileSync(process.execPath, [join(path, 'tools', 'dsd', 'bin', 'dsd.mjs'), 'link'], { cwd: path, stdio: 'ignore' }); row.linked = true } catch { /* no worktree, or no build yet */ }
+    }
+  }
+  for (const rows of Object.values(out)) for (const r of rows) { r.topic = short(r.topic); r.parent = short(r.parent) }
+  const trouble = Object.values(out).flat().filter(r => ['dirty', 'conflict', 'blocked'].includes(r.state))
+  printJson({ ...out, ok: trouble.length === 0 })
+  for (const r of trouble) note(`${r.topic}: ${r.state}${r.files ? ` (${r.files.join(', ')})` : ''}${r.path ? ` (${r.path})` : ''}`)
+}
+
 export async function topics(argv) {
   const args = parseArgs(argv)
   onlyFlags(args, ['json', 'dry-run'])
   const sub = args._[0] ?? 'list'
-  if (args._.length > 1 || !['list', 'check', 'integrate'].includes(sub)) usage('dsd topics [list] [--json] | check | integrate [--dry-run]  (rebase: not built yet)')
+  const USAGE = 'dsd topics [list] [--json] | check | rebase [harness|deepsea] [--dry-run] | integrate [--dry-run]'
+  if (!['list', 'check', 'integrate', 'rebase'].includes(sub) || args._.length > (sub === 'rebase' ? 2 : 1)) usage(USAGE)
   const sections = parseTopics(readFileSync(join(mainCheckout(), 'topics.txt'), 'utf8'))
+  if (sub === 'rebase') {
+    const which = args._[1] ?? 'all'
+    if (!['all', 'harness', 'deepsea'].includes(which)) usage(USAGE)
+    const lock = join(buildsDir(), 'integrate.lock')
+    const { held } = takeLock(lock)
+    if (held !== undefined) throw new DsdError(`another dsd (pid ${held}) is integrating or rebasing; try again when it is done`)
+    try { return await rebaseTopics(sections, which, Boolean(args['dry-run'])) } finally { rmSync(lock, { recursive: true, force: true }) }
+  }
   if (sub === 'check' || sub === 'integrate') {
     const harnessNames = new Set(harnessTopics(sections.harness, harnessRepo(readLock())).map(t => t.topic))
     const rows = deepseaTopics(sections.deepsea, harnessNames)

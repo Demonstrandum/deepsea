@@ -103,6 +103,29 @@ export async function stopSim() {
   return true
 }
 
+/**
+ * A comma-separated account list with its sets expanded: `standard` is one
+ * account per provider and route (every fixture marked `standard`: a key for
+ * each API route and a signed-in Plan for each Plan route), `none` is none.
+ * One account per slot (a key's environment variable, a Plan's route): a
+ * later account replaces an earlier one, so `standard,openrouter-low` is the
+ * standard set with a nearly spent OpenRouter key.
+ */
+export function expandAccounts(spec, known = fixtures()) {
+  const items = String(spec).split(',').map(s => s.trim()).filter(Boolean).flatMap((item) => {
+    if (item === 'none') return []
+    if (item === 'standard') return Object.entries(known).filter(([, f]) => f.standard).map(([name]) => name)
+    return [item]
+  })
+  const slot = (item) => {
+    const fixture = known[item.split('=')[0]]
+    return fixture === undefined ? item : fixture.signIn ? `route:${fixture.signIn}` : fixture.env ? `env:${fixture.env}` : `account:${item}`
+  }
+  const bySlot = new Map()
+  for (const item of items) { bySlot.delete(slot(item)); bySlot.set(slot(item), item) }
+  return [...bySlot.values()]
+}
+
 /** The named test accounts. */
 export function fixtures() {
   const all = {}
@@ -127,7 +150,7 @@ async function simPost(sim, path, body, what) {
 export async function provisionAccounts(sim, spec, suffix) {
   const known = fixtures()
   const out = []
-  for (const item of String(spec).split(',').map(s => s.trim()).filter(Boolean)) {
+  for (const item of expandAccounts(spec, known)) {
     const [name, given] = item.split('=')
     const fixture = known[name]
     if (!fixture) throw new DsdError(`no test account "${name}" (have: ${Object.keys(known).join(', ')})`)

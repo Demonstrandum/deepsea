@@ -12,7 +12,8 @@
             }
           }
         }
-      }
+      },
+      "standard": true
     },
     "openai-low": {
       "provider": "openai",
@@ -47,7 +48,8 @@
       },
       "state": {
         "plan": "plus"
-      }
+      },
+      "standard": true
     },
     "codex-pro-80": {
       "provider": "openai",

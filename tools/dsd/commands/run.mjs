@@ -83,13 +83,13 @@ const merge = (a, b) => {
 
 /**
  * Point a throwaway at the provider simulator: start it if needed, provision
- * its accounts (default: openrouter and deepseek), and write the settings
+ * its accounts (default: `standard`, one per provider route), and write the settings
  * those routes need and the sign-ins of Plan accounts (the grant pi-ai would
  * have stored after a browser sign-in). Returns the environment for its server.
  */
-async function simulate(id, home, build, spec = 'openrouter,deepseek') {
+async function simulate(id, home, build, spec = 'standard') {
   const sim = await ensureSim(build)
-  const accounts = await provisionAccounts(sim, spec === true ? 'openrouter,deepseek' : spec, parseThrowaway(id)?.hex ?? id)
+  const accounts = await provisionAccounts(sim, spec === true ? 'standard' : spec, parseThrowaway(id)?.hex ?? id)
   const env = { DSH_PROVIDER_SIMULATOR: sim.url }
   for (const account of accounts) if (account.env) env[account.env] = account.credential
   // The rows the accounts' routes need (`settings` in the fixture: row id → config), appended
@@ -404,4 +404,27 @@ export async function run(argv) {
   // `dsd stop` from elsewhere may already have removed the home; nothing else to do.
   if (existsSync(home) && !args.keep) rmSync(home, { recursive: true, force: true })
   process.exit(0)
+}
+
+/**
+ * dsd play [--plugins <names|all>] [--accounts <names|standard|none>] [--source <ref>] [--harness <ref>] [--patch <file>,…] [--real]
+ *
+ * A throwaway to try things in: the macOS app, visible, behind a relay, built
+ * from the integration (`--source integration/base`) with every plugin, its
+ * default model the scripted one, and every model provider simulated with
+ * the standard test accounts (`--real`: the real providers and no accounts).
+ * Quitting the app throws it away.
+ */
+export async function play(argv) {
+  const args = parseArgs(argv, ['plugins', 'accounts', 'source', 'harness', 'patch'])
+  onlyFlags(args, ['plugins', 'accounts', 'source', 'harness', 'patch', 'real'])
+  if (args._.length > 0) usage('dsd play [--plugins <names|all>] [--accounts <names|standard|none>] [--source <ref>] [--harness <ref>] [--patch <file>,…] [--real]')
+  if (args.real && args.accounts !== undefined) usage('--accounts goes with simulated providers, not --real')
+  return run([
+    'release', '--throwaway', '--visible', '--detach', '--scripted',
+    ...(args.harness ? ['--harness', args.harness] : ['--source', args.source ?? 'integration/base']),
+    '--plugins', args.plugins ?? 'all',
+    ...(args.real ? [] : ['--simulated', '--accounts', args.accounts ?? 'standard']),
+    ...(args.patch ? ['--patch', args.patch] : []),
+  ])
 }

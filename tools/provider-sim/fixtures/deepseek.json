@@ -3,7 +3,8 @@
     "deepseek": {
       "provider": "deepseek",
       "credential": "sk-sim-deepseek",
-      "env": "DEEPSEEK_API_KEY"
+      "env": "DEEPSEEK_API_KEY",
+      "standard": true
     },
     "deepseek-empty": {
       "provider": "deepseek",

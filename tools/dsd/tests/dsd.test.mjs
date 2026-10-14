@@ -272,7 +272,7 @@ test('logs: kinds and references, the current run, last lines, export names', as
 
 test('simulated accounts: a Plan fixture is signed in, its grant written as credentials-local stores it', async () => {
   const { createSimulator } = await import('../../provider-sim/server.mjs')
-  const { credentialsDocument, provisionAccounts } = await import('../lib/sim.mjs')
+  const { credentialsDocument, expandAccounts, provisionAccounts } = await import('../lib/sim.mjs')
   const sim = await createSimulator({ db: join(root, 'sim.sqlite') })
   await new Promise(resolve => sim.server.listen(0, '127.0.0.1', resolve))
   try {
@@ -286,9 +286,35 @@ test('simulated accounts: a Plan fixture is signed in, its grant written as cred
     const usage = await (await fetch(`${url}/api.anthropic.com/api/oauth/usage`, { headers: { authorization: `Bearer ${record.payload.access}`, 'anthropic-beta': 'oauth-2025-04-20' } })).json()
     assert.equal(usage.five_hour.utilization, 80)
     assert.equal(credentialsDocument(accounts.slice(0, 1)), undefined)
-    await assert.rejects(provisionAccounts({ url }, 'anthropic-max,anthropic-max-80', 'abc124'), /both sign in to anthropic-oauth/)
+    // One account per slot: a later Plan of the same route replaces the earlier one.
+    const replaced = await provisionAccounts({ url }, 'anthropic-max,anthropic-max-80', 'abc124')
+    assert.deepEqual(replaced.map(a => a.name), ['anthropic-max-80'])
+    assert.deepEqual(expandAccounts('standard,openrouter-low', { openrouter: { env: 'OPENROUTER_API_KEY', standard: true }, 'openrouter-low': { env: 'OPENROUTER_API_KEY' }, deepseek: { env: 'DEEPSEEK_API_KEY', standard: true } }), ['deepseek', 'openrouter-low'])
   } finally {
     await new Promise(resolve => sim.server.close(resolve))
     sim.store.close()
   }
+})
+
+test('topics rebase: a stack follows its rewritten parents, replaying only its own commits', async () => {
+  const { restack } = await import('../lib/restack.mjs')
+  const { execFileSync } = await import('node:child_process')
+  const repo = mkdtempSync(join(tmpdir(), 'dsd-restack-'))
+  const g = (...args) => execFileSync('git', args, { cwd: repo, encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@example.com', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@example.com' } }).trim()
+  const commit = (file, text) => { writeFileSync(join(repo, file), text); g('add', file); g('commit', '-q', '-m', file) }
+  try {
+    g('init', '-q', '-b', 'topic/base'); commit('base.txt', 'one')
+    g('checkout', '-q', '-b', 'topic/a'); commit('a.txt', 'a')
+    g('checkout', '-q', '-b', 'topic/b'); commit('b.txt', 'b'); commit('b2.txt', 'b2')
+    // Rewrite base (amend) and then a onto it by hand, as a fold would.
+    g('checkout', '-q', 'topic/base'); writeFileSync(join(repo, 'base.txt'), 'two'); g('commit', '-q', '-a', '--amend', '-m', 'base')
+    const dirty = restack(repo, [{ topic: 'topic/a', parent: 'topic/base' }, { topic: 'topic/b', parent: 'topic/a' }], { dry: true })
+    assert.deepEqual(dirty.map(r => [r.topic, r.state, r.commits]), [['topic/a', 'would rebase', 1], ['topic/b', 'current', undefined]])
+    const done = restack(repo, [{ topic: 'topic/a', parent: 'topic/base' }, { topic: 'topic/b', parent: 'topic/a' }])
+    assert.deepEqual(done.map(r => [r.topic, r.state]), [['topic/a', 'rebased'], ['topic/b', 'rebased']])
+    assert.equal(g('rev-list', '--count', 'topic/a..topic/b'), '2')
+    assert.equal(g('rev-list', '--count', 'topic/base..topic/a'), '1')
+    assert.equal(g('show', 'topic/b:base.txt'), 'two')
+    assert.equal(g('rev-list', '--count', 'topic/b'), '4')
+  } finally { rmSync(repo, { recursive: true, force: true }) }
 })

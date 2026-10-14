@@ -12,7 +12,8 @@
             }
           }
         }
-      }
+      },
+      "standard": true
     },
     "kimi-plan": {
       "provider": "moonshot",
@@ -28,7 +29,8 @@
       },
       "state": {
         "plan": "pro"
-      }
+      },
+      "standard": true
     }
   }
 }

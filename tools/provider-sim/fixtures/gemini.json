@@ -12,7 +12,8 @@
             }
           }
         }
-      }
+      },
+      "standard": true
     },
     "gemini-low": {
       "provider": "gemini",

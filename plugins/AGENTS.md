@@ -124,15 +124,15 @@ copies identical.
 
 - `pnpm test` (node:test) for host logic and pure client helpers;
   `pnpm typecheck` against the linked harness packages.
-- Exercise a plugin in a throwaway: `dsd run release --throwaway-server
-  --scripted --plugins <name>` (tools/dsd/README.md), never in the instance
-  the user is working in. With `--scripted` every prompt is a JSONL script
+- Exercise a plugin in a throwaway (AGENTS.md → Trying and testing has the
+  table): `dsd run release --throwaway-server --scripted --plugins <name>`
+  (tools/dsd/README.md), never in the instance the user is working in. With `--scripted` every prompt is a JSONL script
   of the model's exact reply, so turns, tool calls and their UI can be
   tested without an API key (plugins/scripted-model/README.md). Drive it
   from the shell with `dsd drive` (create-session, prompt, command, events;
   plugins/test-driver/README.md) rather than through a browser. For a
   browser half, use `--throwaway-app`: the real macOS app, hidden, driven
-  with `dsd drive` (wait-page, click, type, eval, describe, snapshot) or a
+  with `dsd drive` (wait-page, click, hover, type, eval, describe, snapshot) or a
   `dsd script` (tools/dsd/README.md), so what you check is what the person
   sees. For anything that depends on the server going away and coming back
   (`/reboot`, `/restore`, a cold start), use `--throwaway`: the same app
@@ -142,8 +142,16 @@ copies identical.
   keys, billing, quotas, errors from a provider) is tested with
   `--simulated` (tools/provider-sim/README.md): every provider is replaced
   by the local simulator, with test accounts that keep credit, balance and
-  usage, and the same scripts. Real accounts are used only by the user, or
-  with their go-ahead.
+  usage, and the same scripts. The default accounts (`standard`) give every
+  provider route a key or a signed-in Plan; name others for edge states
+  (`--accounts standard,anthropic-max-80,openrouter-empty`). An interactive
+  sign-in works too: the hidden app records the sign-in page instead of
+  opening a browser (`dsd drive -v <id> opened`), you `load` it, fill in an
+  email and submit. Real accounts are used only by the user, or with their
+  go-ahead.
+- To hand the user a build to try, `dsd play` (visible, every plugin,
+  simulated providers); say which accounts it has (the `simulated` field of
+  its output).
 - Before calling a topic done, check it beside the others: `dsd topics
   check` (conflicts) and, after `dsd topics integrate`, a throwaway from
   `--source integration/base --plugins all`.

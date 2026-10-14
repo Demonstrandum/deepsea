@@ -12,7 +12,8 @@
             }
           }
         }
-      }
+      },
+      "standard": true
     },
     "anthropic-low": {
       "provider": "anthropic",
@@ -45,7 +46,8 @@
       },
       "state": {
         "plan": "max5"
-      }
+      },
+      "standard": true
     },
     "anthropic-max-80": {
       "provider": "anthropic",

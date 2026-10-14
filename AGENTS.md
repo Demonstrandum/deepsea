@@ -40,6 +40,32 @@ working here. Names, identifiers and disk locations are defined in
 - **Commits.** Commit only when the user asks. The local policy for commits
   and pushes, if there is one, is the main checkout's `private/AGENTS.md`. Features often require rounds of experimentation from the user to dial in behaviors, and we do not wish these to produce chains of small commits.
 
+## Trying and testing
+
+Everything runs in **throwaways**: a home, server and app of their own,
+removed when stopped, never touching the user's instances. No real keys or
+accounts are needed: every model provider can be **simulated**
+(tools/provider-sim/README.md) with test accounts that keep credit, Plan
+usage windows and prices, and the replies are scripts
+(plugins/scripted-model/README.md; type `help` as a prompt for the table).
+
+| To | Run |
+|---|---|
+| hand the user something to try | `dsd play` (the app, visible, every plugin, every provider simulated with a key or a signed-in Plan; quitting it throws it away) |
+| test a plugin's server half | `dsd run release --throwaway-server --detach --scripted --plugins <names>` |
+| test what a person sees | `dsd run release --throwaway-app --detach --scripted --plugins <names>`: the macOS app, hidden |
+| test restarts and cold starts | `--throwaway` instead: the app behind a relay, as installed |
+| involve providers (models, sign-in, billing, quotas, provider errors) | add `--simulated` (default accounts `standard`; `--accounts openrouter-low,anthropic-max-80` for edge states; `dsd sim fixtures` lists them) |
+| run everything together | add `--source integration/base` (after `dsd topics integrate`) |
+| drive it | `dsd drive -v <id> create-session \| prompt last - \| command last /x \| wait-page \| click \| hover \| type \| eval \| snapshot --window \| opened` (read the snapshot PNGs) |
+| read its logs | `dsd logs <id> [server \| app \| relay \| plugin <name>] [--follow]` |
+| change an account mid-test | `dsd sim account <provider> <credential> --set '{…}'` (credential from `run`'s output) |
+| finish | `dsd stop <id>` (always your own: `-v <id>` / `<id>`, never another agent's; never `dsd gc` while others work) |
+
+The details: tools/dsd/README.md, plugins/AGENTS.md → Testing. Real
+accounts are used only by the user, or with their go-ahead; a real key
+never goes into a throwaway that agents drive.
+
 ## Repository layout
 
 See LAYOUT.md §3. In short: `plugins/<name>/` (one installable package
@@ -87,9 +113,11 @@ Both this repository and the harness fork are kept as **topic branches**:
   commit that introduced the thing (`git commit --fixup` /
   `--fixup=amend:`, then `git rebase -i --autosquash`) before the topic is
   considered done, not left as a trailing commit. Consult the user if this rule would involve complex rebasing, affect already-pushed work, or cross multiple topics. 
-- Child topics are rebased with `git rebase --onto <new parent> <old parent
-  tip> <child>` after their parent is rewritten; otherwise the parent's old
-  commits are replayed.
+- After base or a parent topic changes, `dsd topics rebase` rebases every
+  topic onto its parent (with `--onto` from the fork point, so a rewritten
+  parent's old commits are not replayed; worktrees relinked; dirty or
+  conflicting topics left alone and reported), and `dsd topics integrate`
+  rebuilds the integrations.
 - Work on a topic in its own worktree (LAYOUT.md §2), so agents can work on
   topics in parallel without sharing a working tree: `dsd worktree add
   <topic>` creates the branch from `topic/base`, the worktree, its `harness`

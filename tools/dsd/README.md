@@ -5,7 +5,7 @@ builds, `link`, throwaway servers, apps, and apps behind a relay; named
 variants: `new`, `build [--install [--dock]]`, `run`, `stop`, `remove`;
 `list`, `logs`, `gc`, `drive`, `script`, `worktree`, `topics list | check |
 integrate`, builds of this repository's commits for `run --source`,
-`check`); everything else below (`exec`, `topics rebase`) is design. See
+`check`, `topics rebase`, `play`, `sim`); everything else below (`exec`) is design. See
 "Implementation order".
 
 `dsd` builds, runs, inspects and drives DeepSea variants (LAYOUT.md §1), and
@@ -152,10 +152,11 @@ taken over. Build logs: `~/Library/Logs/io.github.taliesinb.deepsea/builds/`.
 
 | Command | Does |
 |---|---|
+| `dsd play [--plugins <names\|all>] [--accounts <names\|standard\|none>] [--source <ref>] [--harness <ref>] [--patch <file>,…] [--real]` | a throwaway to try things in, for people: `run release --throwaway --visible --detach --scripted --source integration/base --plugins all --simulated --accounts standard` (the app in front of you, every plugin, every provider simulated with test accounts, the scripted model the default); `--real` uses the real providers and no accounts. Quitting the app throws it away |
 | `dsd new <v> [--source <ref>] [--color <hex>] [--plugins <names\|all>] [--no-serve]` | create a named variant: home, `variant.yml` (port block: the first free one; Serve path, stepping aside from another account's), and the home's `logs` / `support` links (LAYOUT.md §4, §7); `--source` defaults to `integration/base` |
 | `dsd build <v> [--install [--dock]] [--self]` | make sure the build of its source commit exists, write its plugin patches, and build its app (`apps/macos`); `--install` installs the app (`~/Applications`), the server host and relay link (Application Support), the relay LaunchAgent (loaded at once; LAYOUT.md §6) and the home's `source` link, and with `--dock` a Dock tile. The server host is replaced only when its signature changes, so privacy grants survive |
 | `dsd remove <v> [--home] [--self]` | uninstall a named variant: its LaunchAgent (stopping relay and server), its own Serve path, Dock tile, app, preferences and `~/Library` leftovers; the home stays unless `--home` |
-| `dsd run <v> [--throwaway \| --throwaway-app \| --throwaway-server] [--visible] [--detach] [--scripted] [--plugins <names\|all>] [--patch <file>,…] [--app <checkout \| ref>] [--source <ref>] [--harness <ref>] [--ttl <min>] [--keep]` | start it, building first if needed (a throwaway always gets plugins/test-driver and plugins/server-log); prints id, home, URL, login URL (with token), pids, log, app path, automation socket, and with `--throwaway` the relay's pid, port, URL and log. `--source <ref>` runs a build of that commit of this repository (plugins, harness pin, app); `--harness` names a harness commit directly; `--simulated [--accounts <names>]` points every model provider at the provider simulator with fresh test accounts (default `openrouter,deepseek`; a Plan fixture such as `anthropic-max` starts signed in; tools/provider-sim/README.md) |
+| `dsd run <v> [--throwaway \| --throwaway-app \| --throwaway-server] [--visible] [--detach] [--scripted] [--plugins <names\|all>] [--patch <file>,…] [--app <checkout \| ref>] [--source <ref>] [--harness <ref>] [--ttl <min>] [--keep]` | start it, building first if needed (a throwaway always gets plugins/test-driver and plugins/server-log); prints id, home, URL, login URL (with token), pids, log, app path, automation socket, and with `--throwaway` the relay's pid, port, URL and log. `--source <ref>` runs a build of that commit of this repository (plugins, harness pin, app); `--harness` names a harness commit directly; `--simulated [--accounts <names>]` points every model provider at the provider simulator with fresh test accounts (default `standard`: one account per provider route, keys and signed-in Plans; a later account replaces an earlier one of the same route, so `standard,openrouter-low` swaps in a nearly spent OpenRouter key; `none` for none; tools/provider-sim/README.md) |
 | `dsd stop [<ref>] [--keep]` | stop it: a named variant's relay job is unloaded (relay and server stop; the LaunchAgent stays and starts again at login or with `dsd run`); a throwaway's home, logs and macOS leftovers are removed unless `--keep` |
 | `dsd sim [status] \| start \| stop \| accounts [<provider>] \| account <provider> <credential> [--set <json>] \| fixtures` | the provider simulator (tools/provider-sim/README.md): one per checkout, sharing one store of accounts, started on demand and left running |
 | `dsd list [--builds]` | variants, what is running, ports, ids; with `--builds`, the builds and what uses each |
@@ -167,6 +168,7 @@ taken over. Build logs: `~/Library/Logs/io.github.taliesinb.deepsea/builds/`.
 | `dsd script <file.mjs> [-v <ref>]` | run a script: its default export gets `{ id, url, login, server(op, body), app(op, body), sleep }` and its return value is printed |
 | `dsd topics [list]` | both repositories' topics: parents, commits, what each requires, how far behind |
 | `dsd topics check` | merge in memory (no working tree touched): every pair of topics of each repository and each full integration; reports conflicts, missing harness topics, topic worktrees with uncommitted work (integrated as committed) |
+| `dsd topics rebase [harness \| deepsea] [--dry-run]` | rebase every topic onto its parent's current tip, parents first: `git rebase --onto <parent> <fork point> <topic>` with the fork point from the parent's reflog, so a rewritten parent's old commits are not replayed; a topic checked out in a worktree is rebased there (and relinked), any other in a scratch worktree; a topic with uncommitted work, or whose rebase conflicts, is left as it was (the rebase aborted), with the topics stacked on it |
 | `dsd topics integrate [--dry-run]` | build `integration/<upstream>` in the harness repository (its `topic/base`, then its topics in topics.txt order) and `integration/base` here (topic/base, then every topic by name), one `Merge <topic>` commit each; moved only when every merge succeeds; a merge whose parents are unchanged keeps its commit, so an unchanged integration keeps its ids and its pin. A checked-out integration branch moves with its worktree (refused with uncommitted changes). Reports when the harness integration differs from the pin (pin it on topic/base to run it) |
 | `dsd worktree add <topic> [--from <ref>] \| list \| remove <topic>` | a topic's worktree in `<repo>-worktrees/<topic>/`: branch `topic/<topic>` (from `topic/base`), `harness` link, pre-commit check; `remove` refuses uncommitted changes and keeps the branch |
 | `dsd check [--staged \| <rev range>] [--install-hook]` | scan added lines for local paths, private addresses, tailnet names, email addresses and `private/check-patterns.txt`; the pre-commit hook runs `--staged` |
@@ -255,6 +257,7 @@ The app's operations (apps/macos/README.md has the protocol):
 | `eval <js \| ->` | run a function body in the page (`await` allowed); its JSON value |
 | `resize <W>x<H>`, `view desktop\|mobile`, `appearance light\|dark\|system` | the window's content size, View ▸ Desktop / Mobile, the app's appearance |
 | `click <css> [--nth <n>] [--clicks <n>]`, `click --text <label> [<css>]`, `click --x <x> --y <y>` | real mouse events at the element's centre or a point; `--text` takes the innermost visible element showing that text, optionally within a selector |
+| `hover <css> [--nth <n>]`, `hover --text <label> [<css>]` | the page events of a pointer arriving on the element (`pointerover`/`enter`, `mouseover`/`enter`, `mousemove`), so controls a script reveals on hover (React's `onMouseEnter`) can then be clicked; CSS `:hover` does not change in a hidden window (WebKit tracks hover only in the active window) |
 | `type <text \| ->`, `type --key <Enter \| Escape \| cmd+k \| …>` | real key events, finished when it answers |
 | `describe <css> [--nth <n>]` | the element inspector's record: selector, rect, text, HTML, accessibility, styles, slots, React chain, ancestors, children |
 | `snapshot <css>`, `snapshot --window [--chrome]` | an element snapshot (element, page with it outlined, record) or the page; files under the app's log directory, images by content hash |
@@ -279,4 +282,4 @@ across restarts (above).
 3. Named variants: `new`, `build --install`, `run`, `stop`, `remove`;
    `run --throwaway` with the relay; `logs` (done).
 4. `topics check | integrate` and `run --source` from deepsea builds (done);
-   `topics rebase`, `exec` (commands in a build with a throwaway home).
+   `topics rebase` (done); `exec` (commands in a build with a throwaway home).

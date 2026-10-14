@@ -21,6 +21,7 @@
  *   eval <js | ->                         a function body (await allowed); its JSON value
  *   resize <W>x<H> | view desktop|mobile | appearance light|dark|system
  *   click <css> [--nth <n>] [--clicks <n>] | click --text <label> [<css>] | click --x <x> --y <y>
+ *   hover <css> [--nth <n>] | hover --text <label> [<css>]   (a pointer's page events on it: script-revealed hover controls)
  *   type <text | -> | type --key <Enter | Escape | cmd+k | …>
  *   describe <css> [--nth <n>]            the element inspector's record
  *   snapshot [<css> [--nth <n>]] [--window] [--chrome]
@@ -40,8 +41,8 @@ import { alive } from '../lib/processes.mjs'
 import { readState, resolveRef } from '../lib/variants.mjs'
 import { DsdError, onlyFlags, parseArgs, printJson, sleep, usage } from '../lib/util.mjs'
 
-const USAGE = 'dsd drive [-v <ref>] <op> …  server: health create-session prompt command wait events cancel sessions invoke url; app: load reload wait-page eval resize view appearance click type describe snapshot window-info app-log opened quit (tools/dsd/README.md)'
-const APP_OPS = new Set(['load', 'reload', 'wait-page', 'eval', 'resize', 'view', 'appearance', 'click', 'type', 'describe', 'snapshot', 'window-info', 'app-log', 'opened', 'quit'])
+const USAGE = 'dsd drive [-v <ref>] <op> …  server: health create-session prompt command wait events cancel sessions invoke url; app: load reload wait-page eval resize view appearance click hover type describe snapshot window-info app-log opened quit (tools/dsd/README.md)'
+const APP_OPS = new Set(['load', 'reload', 'wait-page', 'eval', 'resize', 'view', 'appearance', 'click', 'hover', 'type', 'describe', 'snapshot', 'window-info', 'app-log', 'opened', 'quit'])
 const LAST_SESSION = 'run/drive-last-session'
 
 /** POST one operation to the throwaway's test driver; resolve its value or throw its error. */
@@ -215,6 +216,34 @@ async function appOp(variant, op, rest, args) {
     case 'click': {
       if (args.text !== undefined) { if (rest.length > 1) usage('dsd drive click --text <label> [<css scope>]'); return send('click', { text: args.text, ...(rest[0] ? { selector: rest[0] } : {}), ...count('nth'), ...count('clicks') }) }
       return send('click', { ...target(), ...count('clicks') })
+    }
+    case 'hover': {
+      // The pointer's page events on the element (pointerover/enter, mouseover/enter, mousemove), as
+      // a mouse arriving sends them; React's onMouseEnter and hover-revealed controls follow them.
+      // CSS :hover does not change: a hidden window is never active, and WebKit tracks hover only there.
+      const where = args.text !== undefined ? { text: args.text, selector: rest[0] ?? null } : rest.length === 1 ? { selector: rest[0], text: null } : usage('dsd drive hover <css> [--nth <n>] | hover --text <label> [<css scope>]')
+      const nth = args.nth === undefined ? 0 : Number(args.nth)
+      return send('eval', { js: `const where = ${JSON.stringify({ ...where, nth })}
+        const shown = e => (e.innerText || '').trim()
+        let all
+        if (where.text != null) {
+          const roots = where.selector ? [...document.querySelectorAll(where.selector)] : [document.body]
+          const scope = [...new Set(roots.flatMap(r => [...(where.selector ? [r] : []), ...r.querySelectorAll('*')]))].filter(e => e.getClientRects().length > 0)
+          let pool = scope.filter(e => shown(e) === where.text)
+          if (pool.length === 0) pool = scope.filter(e => shown(e).includes(where.text))
+          all = pool.filter(e => !pool.some(o => o !== e && e.contains(o)))
+        } else all = [...document.querySelectorAll(where.selector)]
+        const el = all[where.nth < 0 ? all.length + where.nth : where.nth]
+        if (!el) throw new Error('nothing matches ' + (where.text != null ? 'text ' + JSON.stringify(where.text) : where.selector))
+        const r = el.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2
+        const at = { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, view: window }
+        el.dispatchEvent(new PointerEvent('pointerover', { ...at, pointerType: 'mouse' }))
+        for (let e = el; e; e = e.parentElement) e.dispatchEvent(new PointerEvent('pointerenter', { ...at, bubbles: false, pointerType: 'mouse' }))
+        el.dispatchEvent(new MouseEvent('mouseover', at))
+        for (let e = el; e; e = e.parentElement) e.dispatchEvent(new MouseEvent('mouseenter', { ...at, bubbles: false }))
+        el.dispatchEvent(new PointerEvent('pointermove', { ...at, pointerType: 'mouse' }))
+        el.dispatchEvent(new MouseEvent('mousemove', at))
+        return { x, y, element: el.tagName.toLowerCase() + (typeof el.className === 'string' && el.className ? '.' + el.className.trim().split(/\\s+/)[0] : '') }` })
     }
     case 'type': {
       if (args.key !== undefined) { if (rest.length) usage('dsd drive type --key <key> takes no text'); return send('type', { key: args.key }) }
