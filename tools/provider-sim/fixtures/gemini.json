@@ -1,0 +1,35 @@
+{
+  "accounts": {
+    "gemini": {
+      "provider": "gemini",
+      "credential": "AIzaSy-sim-gemini",
+      "env": "GEMINI_API_KEY",
+      "settings": {
+        "llm-pi-ai": {
+          "providers": {
+            "google": {
+              "apiKeyEnv": "GEMINI_API_KEY"
+            }
+          }
+        }
+      }
+    },
+    "gemini-low": {
+      "provider": "gemini",
+      "credential": "AIzaSy-sim-gemini-low",
+      "env": "GEMINI_API_KEY",
+      "settings": {
+        "llm-pi-ai": {
+          "providers": {
+            "google": {
+              "apiKeyEnv": "GEMINI_API_KEY"
+            }
+          }
+        }
+      },
+      "state": {
+        "balanceMicros": 50000
+      }
+    }
+  }
+}
