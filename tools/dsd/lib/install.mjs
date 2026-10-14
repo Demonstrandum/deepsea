@@ -230,9 +230,15 @@ const dockXml = () => spawnSync('/usr/bin/defaults', ['export', 'com.apple.dock'
 /** Add a Dock tile for an app unless it has one. */
 export function addDockTile(appPath) {
   if (dockHas(dockXml(), appPath)) return false
-  execFileSync('/usr/bin/defaults', ['write', 'com.apple.dock', 'persistent-apps', '-array-add', dockTile(appPath)])
-  spawnSync('/usr/bin/killall', ['Dock'], { stdio: 'ignore' })
-  return true
+  // A Dock still restarting after an earlier tile writes its own list back over a new one: check, and add
+  // again once it has settled.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    execFileSync('/usr/bin/defaults', ['write', 'com.apple.dock', 'persistent-apps', '-array-add', dockTile(appPath)])
+    spawnSync('/usr/bin/killall', ['Dock'], { stdio: 'ignore' })
+    spawnSync('/bin/sleep', ['3'])
+    if (dockHas(dockXml(), appPath)) return true
+  }
+  throw new DsdError(`the Dock did not keep the tile for ${appPath}; add it by hand`)
 }
 
 /** Remove an app's Dock tile, if any (through a plist round trip, leaving every other tile as it is). */
