@@ -204,7 +204,12 @@ async function freePorts(count) {
   return [...ports]
 }
 
-export async function run(argv) {
+/**
+ * @param {string[]} argv
+ * @param {object} [hooks] - for commands built on run (dsd adopt): `prepareHome({ id, home, build, source, plugins })`
+ *   runs once the home exists, before plugins are installed and anything starts; `output()` adds to the printed facts.
+ */
+export async function run(argv, hooks = {}) {
   const args = parseArgs(argv, ['source', 'harness', 'timeout', 'plugins', 'ttl', 'app', 'patch', 'accounts'])
   onlyFlags(args, ['throwaway', 'throwaway-app', 'throwaway-server', 'detach', 'source', 'harness', 'keep', 'timeout', 'plugins', 'ttl', 'scripted', 'visible', 'app', 'patch', 'no-app', 'simulated', 'accounts'])
   const extraPatches = typeof args.patch === 'string' ? args.patch.split(',').filter(Boolean).map(f => resolve(f)) : []
@@ -267,6 +272,9 @@ export async function run(argv) {
   mkdirSync(anthropicConfig, { recursive: true, mode: 0o700 })
   const simEnv = { ANTHROPIC_CONFIG_DIR: anthropicConfig, ...simulation?.env }
   const cleanup = async () => removeVariant(id, { keep: Boolean(args.keep) })
+  if (hooks.prepareHome) {
+    try { await hooks.prepareHome({ id, home, build, source, plugins: plugins.map(p => p.name) }) } catch (error) { await cleanup(); throw error }
+  }
   const [port, relayPort] = await freePorts(2)
   const relay = mode === 'full'
     ? { port: relayPort, url: `http://127.0.0.1:${relayPort}/`, tokenFile: join(home, 'relay', 'state.json'), log: join(logDirOf(id), 'relay', 'latest.log'), consoleLog: join(logDirOf(id), 'relay', 'console.log') }
@@ -374,6 +382,7 @@ export async function run(argv) {
     pid: child.pid, port, log: facts.log, harness: commit.slice(0, 10), ...(source ? { source: `${source.ref} (${source.commit.slice(0, 10)})` } : {}), plugins: plugins.map(p => p.name), detached: Boolean(args.detach), expires,
     ...(relay ? { relay: { pid: child.pid, ...facts.relay } } : {}),
     ...(bundle ? { app: { path: bundle.app, pid: appChild.pid, socket: appSocketOf(id), log: hello.log, visible: Boolean(args.visible), source: app.describe } } : {}),
+    ...(hooks.output?.() ?? {}),
   })
 
   if (args.detach) { child.unref(); appChild?.unref(); return }

@@ -5,7 +5,7 @@ builds, `link`, throwaway servers, apps, and apps behind a relay; named
 variants: `new`, `build [--install [--dock]]`, `run`, `stop`, `remove`;
 `list`, `logs`, `gc`, `drive`, `script`, `worktree`, `topics list | check |
 integrate`, builds of this repository's commits for `run --source`,
-`check`, `topics rebase`, `play`, `sim`); everything else below (`exec`) is design. See
+`check`, `topics rebase`, `play`, `sim`, `adopt`); everything else below (`exec`) is design. See
 "Implementation order".
 
 `dsd` builds, runs, inspects and drives DeepSea variants (LAYOUT.md §1), and
@@ -171,6 +171,7 @@ taken over. Build logs: `~/Library/Logs/io.github.taliesinb.deepsea/builds/`.
 | `dsd play [--plugins <names\|all>] [--accounts <names\|standard\|none>] [--source <ref>] [--harness <ref>] [--patch <file>,…] [--real]` | a throwaway to try things in, for people: `run release --throwaway --visible --detach --scripted --source integration/base --plugins all --simulated --accounts standard` (the app in front of you, every plugin, every provider simulated with test accounts, the scripted model the default); `--real` uses the real providers and no accounts. Quitting the app throws it away |
 | `dsd new <v> [--source <ref>] [--color <hex>] [--plugins <names\|all>] [--no-serve]` | create a named variant: home, `variant.yml` (port block: the first free one; Serve path, stepping aside from another account's), and the home's `logs` / `support` links (LAYOUT.md §4, §7); `--source` defaults to `integration/base` |
 | `dsd build <v> [--install [--dock]] [--self]` | make sure the build of its source commit exists, install its plugins into its profile as bundles, and build its app (`apps/macos`); `--install` installs the app (`~/Applications`), the server host and relay link (Application Support), the relay LaunchAgent (loaded at once; LAYOUT.md §6) and the home's `source` link, and with `--dock` a Dock tile. The server host is replaced only when its signature changes, so privacy grants survive |
+| `dsd adopt <old home> (<v> \| --throwaway [run options…]) [--move-sign-ins] [--dry-run]` | bring an old DSH home (`~/.dsh…`) into a variant: copies sessions and attachments, the workspace registry, settings.yaml, API keys, each old plugin's state in its DeepSea place, the old profile's own rows and third-party bundles; re-runnable (it brings what is new or changed, and reports a conflict for anything changed on both sides); creates `<v>` as `new` would if missing (not built: `dsd build <v> --install` stays yours); `--throwaway` adopts into a fresh throwaway and starts it (run options pass through); `--move-sign-ins` moves Plan sign-ins out of the old home; `--dry-run` touches nothing (below) |
 | `dsd remove <v> [--home] [--self]` | uninstall a named variant: its LaunchAgent (stopping relay and server), its own Serve path, Dock tile, app, preferences and `~/Library` leftovers; the home stays unless `--home` |
 | `dsd run <v> [--throwaway \| --throwaway-app \| --throwaway-server] [--visible] [--detach] [--scripted] [--plugins <names\|all>] [--patch <file>,…] [--app <checkout \| ref>] [--source <ref>] [--harness <ref>] [--ttl <min>] [--keep]` | start it, building first if needed (a throwaway always gets plugins/test-driver and plugins/server-log); prints id, home, URL, login URL (with token), pids, log, app path, automation socket, and with `--throwaway` the relay's pid, port, URL and log. `--source <ref>` runs a build of that commit of this repository (plugins, harness pin, app; a named plugin, or under `all` any plugin, that build lacks comes from this checkout, so a topic not integrated yet runs beside the integration); `--harness` names a harness commit directly; `--simulated [--accounts <names>]` points every model provider at the provider simulator with fresh test accounts (default `standard`: one account per provider route, keys and signed-in Plans; a later account replaces an earlier one of the same route, so `standard,openrouter-low` swaps in a nearly spent OpenRouter key; `none` for none; tools/provider-sim/README.md) |
 | `dsd stop [<ref>] [--keep]` | stop it: a named variant's relay job is unloaded (relay and server stop; the LaunchAgent stays and starts again at login or with `dsd run`); a throwaway's home, logs and macOS leftovers are removed unless `--keep` |
@@ -234,6 +235,66 @@ Rules:
 | `--inherit-sessions "id,…" \| "*"` | those sessions, the attachments they reference, their workspace entries; `*` reports the size first |
 | `--inherit-api-keys "anthropic,…" \| "*"` | stored API keys for those providers |
 | `--inherit-logins "anthropic,…" \| "*"` | sign-ins, access token only: the throwaway works until it expires (hours). Copying the refresh token would let the throwaway's first refresh sign the parent out (providers rotate it), so that needs `--allow-refresh` |
+
+## Adopting a DSH home
+
+`dsd adopt <old home> <v>` brings an old DSH home (the `~/.dsh…` homes from
+before DeepSea) into the variant `<v>`. It reads the old home and never
+writes it (the one exception is `--move-sign-ins`, below), never writes under
+a running variant (stop it first), and never runs `dsh` in a home it did not
+make. Run it with `--dry-run` first: the report lists what would be copied,
+translated, skipped and in conflict, with sizes, and nothing is touched.
+
+DSH's own state is known to dsd. The old plugins' names (packages, rows,
+settings sections, state files) are retired names, so they are a table of the
+machine the old homes are on, not part of this repository:
+`private/adopt-map.mjs` of the main checkout (or `DEEPSEA_ADOPT_MAP`), in
+the shape `lib/adopt-map.mjs` documents. Without it, everything an old plugin
+left is reported as unknown and its rows are carried as they are.
+
+| Old home | New home |
+|---|---|
+| `sessions/<project>/<session>/` (subagent sessions too; not `session.lock`) | the same; DSH 0.2 migrates a v3 log to v4 the first time it writes the session |
+| `storages/workspace.json` | merged: workspaces (by id, then path), their sessions in the old order, archived and pinned state; nothing in the new registry is removed |
+| `storages/session_projcache/` | per adopted session, when the new home has none (a derived listing cache) |
+| `attachments/` | the same (content-addressed), without `v1/tmp` |
+| `settings.yaml` | as it is; DSH 0.2 moves it into the profile patch at its first start (`settings.yaml.imported`). Sections the new profile has its own row for are left out (a conflict; in a throwaway, dsd's rows win); sections of plugins that are gone are reported (DSH logs them at the import and keeps them only in `settings.yaml.imported`) |
+| `.credentials.yaml` | API keys (`refs`); Plan sign-ins only with `--move-sign-ins`; never the home's browser-session secret |
+| `.agent-presets/<name>/` | the same, except presets a DeepSea plugin ships (`minimal-no-tools`) |
+| an old plugin's files and directories (the table's `entries`) | its DeepSea plugin's place (each plugin's README → Storage): a billing store into `plugins/billing/`, brand profiles into `plugins/brand-kit/` (`state.json`, `profiles/<name>/`), uploads into `plugins/import-sessions/`, remote servers into `plugins/remote-workspaces/workspaces.json`, the tailscale token, allowed logins and session owners into `plugins/tailscale/`; a third-party plugin's state where it was |
+| `session-move-backups/` | the same (DSH's copies of moved sessions) |
+| `<old home>-backups/*.zip` | `~/.deepsea/_backups/<v>/` (old format: import-sessions reads them, `/restore` does not) |
+| `profiles/web/cordis.patch.yml` | rows of harness packages (Notion over `@deepseek-ai/dsh-mcp-client`, `session-title-llm`, `session-log-deepseek`, `session-telemetry-otel`) and of third-party bundles as they are; rows of old plugins translated to the DeepSea row where the plugin has the same setting (the table's `translations`: a trace file becomes `trace: true`; tailscale keeps `identityOperators`, `loopbackForward`; the old colour becomes a new variant's `color`), else dropped and reported. Into the new profile's own patch layer |
+| `profiles/web/package.json` | third-party bundles installed as the harness does (`dsh plugin --profile web add <name>@<spec>` with `DSH_HOME` the new home); a bundle dsh refuses (an untested version) is reported and its rows stay out |
+| `cache/`, `logs/`, `tmp/`, `.anonymous-user-id` | not carried |
+
+Re-running brings what is new or changed in the old home since the last
+adopt, by modification time, without duplicating anything:
+`<home>/adopted.json` records each run (source, time, a summary) and, per
+source, every file, session (its files on both sides), profile row and
+credential (a hash) it wrote. Something changed in the new home since then is
+kept; changed on both sides, or present in the new home without having come
+from an adopt and different, it is a **conflict**: reported, never
+overwritten. Removed from the new home, it stays removed.
+
+**Plan sign-ins.** Two homes refreshing one grant sign each other out, so a
+sign-in is never copied: `--move-sign-ins` copies the grants and then takes
+them out of the old home's `.credentials.yaml` in the same step (read again
+just before, so a grant the old server refreshed meanwhile is the one that
+moves). Without it they are left out and listed.
+
+**`--throwaway`** adopts into a fresh throwaway before it starts, then starts
+it as `dsd run <parent> --throwaway` would (the parent is the old instance's
+name, `~/.dsh-lab` → `lab-<hex>`, else `release`; every plugin
+unless `--plugins`; `--throwaway-app`, `--throwaway-server`, `--detach`,
+`--simulated`, `--source` and the other run options pass through). It gets
+no credentials (keys, sign-ins, the tailscale token, remote servers' tokens),
+no backups, and its MCP rows come disabled (they sign in with this machine's
+MCP credentials); rows of plugins it does not load stay out. Old sessions on
+a model the throwaway cannot reach (a local server) need a simulated route
+first: `dsd drive invoke session selectModel '{"request": {"sessionId": "…",
+"provider": "anthropic-oauth", "model": "claude-opus-5-5"}}'`.
+`--move-sign-ins` refuses `--throwaway`.
 
 ## Driving a throwaway
 

@@ -3,6 +3,7 @@
  * dsd — the DeepSea developer CLI. Command reference: tools/dsd/README.md.
  */
 import { execFileSync } from 'node:child_process'
+import { adoptCommand } from '../commands/adopt.mjs'
 import { check } from '../commands/check.mjs'
 import { drive } from '../commands/drive.mjs'
 import { logs } from '../commands/logs.mjs'
@@ -27,6 +28,7 @@ const HELP = `dsd — DeepSea developer CLI (tools/dsd/README.md)
   dsd build <v> [--install [--dock]] [--self]
   dsd run <v> [--no-app]   (an installed named variant)
   dsd remove <v> [--home] [--self]
+  dsd adopt <old home> (<variant> | --throwaway [run options…]) [--move-sign-ins] [--dry-run]
   dsd run <variant> --throwaway | --throwaway-app | --throwaway-server [--visible] [--detach] [--scripted] [--plugins <names|all>]
           [--app <checkout|ref>] [--patch <file>,…] [--source <ref, e.g. integration/base>] [--simulated [--accounts <names>]] [--harness <ref>] [--ttl <min>] [--keep]
   dsd stop [<variant>] [--keep]
@@ -46,7 +48,7 @@ A <variant> reference is a full id, a unique part of a throwaway's hex, or
 nothing when exactly one of your throwaways is running.
 `
 
-const COMMANDS = { new: newVariant, build, remove, sim, play, run, stop, list, logs, gc, builds: buildsCommand, link, drive, script, worktree, topics, check, __supervise: supervise }
+const COMMANDS = { new: newVariant, build, remove, adopt: adoptCommand, sim, play, run, stop, list, logs, gc, builds: buildsCommand, link, drive, script, worktree, topics, check, __supervise: supervise }
 
 /**
  * Warn when this dsd is run inside another checkout of the same repository:

@@ -1,0 +1,70 @@
+/**
+ * What `dsd adopt` knows about an old DSH home. DSH's own entries are here;
+ * the old plugins' names, rows and state files are a table of the machine
+ * the old homes are on (their names are retired: they stay out of tracked
+ * files), `<main checkout>/private/adopt-map.mjs` or `DEEPSEA_ADOPT_MAP`.
+ * Without one, adopt carries DSH's own state and reports every old plugin's
+ * entry as unknown.
+ *
+ * The table module's exports, all optional:
+ *
+ *   packages      old package → { plugin: <DeepSea plugin dir> | null, rows: [<old row ids>], note? }
+ *   translations  old row id → { keep: [<config keys the DeepSea plugin has with the same meaning>],
+ *                 extra?(config) → more keys, drop?(key, value), gone?: <why the rest is not carried> }
+ *   settings      old settings.yaml section → a note (the section is copied, and reported)
+ *   color         { row, key }: the old row whose config holds the instance's #rrggbb colour
+ *   entries       old top-level entries (by `name` or `match`) → { tree: <dir in the new home>,
+ *                 files?: { <file at the tree's top>: <its own place> } } | { file, secret?: 'token' | 'servers' }
+ *                 | { skip: <why> }; each with `what` (a label for the report)
+ */
+import { existsSync } from 'node:fs'
+import { join, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
+import { mainCheckout } from './paths.mjs'
+import { DsdError } from './util.mjs'
+
+/** Default bundles of a harness profile: never reinstalled by adopt. */
+export const HARNESS_BUNDLE = name => name.startsWith('@deepseek-ai/')
+
+/**
+ * DSH's own top-level entries of a home: `own` (a step of their own), or
+ * `tree` (copied to the same place), or `skip`.
+ */
+export const DSH_ENTRIES = [
+  { name: 'sessions', own: true },
+  { name: 'attachments', own: true },
+  { name: 'storages', own: true },
+  { name: 'settings.yaml', own: true },
+  { name: '.credentials.yaml', own: true },
+  { name: '.agent-presets', own: true },
+  { name: 'profiles', own: true },
+  { name: 'session-move-backups', tree: 'session-move-backups', what: "DSH's copies of moved sessions" },
+  { name: 'cache', skip: "DSH's cache (request images), rebuilt on demand" },
+  { name: 'logs', skip: "the old instance's logs" },
+  { name: 'tmp', skip: 'scratch' },
+  { name: '.anonymous-user-id', skip: 'per home; the new home makes its own' },
+]
+
+/** The table at `path` (default: DEEPSEA_ADOPT_MAP, else private/adopt-map.mjs), normalized; `{}` when there is none. */
+export async function loadAdoptMap(path = process.env.DEEPSEA_ADOPT_MAP ?? join(mainCheckout(), 'private', 'adopt-map.mjs')) {
+  if (!existsSync(path)) return normalizeMap({}, undefined)
+  try {
+    return normalizeMap(await import(pathToFileURL(resolve(path)).href), resolve(path))
+  } catch (error) {
+    throw new DsdError(`adopt: cannot load ${path}: ${error.message}`)
+  }
+}
+
+/** A table with every part present, and the old row id → old package index. */
+export function normalizeMap(table, path) {
+  const packages = table.packages ?? {}
+  return {
+    path,
+    packages,
+    rows: Object.fromEntries(Object.entries(packages).flatMap(([pkg, entry]) => (entry.rows ?? []).map(row => [row, pkg]))),
+    translations: table.translations ?? {},
+    settings: table.settings ?? {},
+    color: table.color,
+    entries: [...DSH_ENTRIES, ...(table.entries ?? [])],
+  }
+}

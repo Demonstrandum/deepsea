@@ -166,6 +166,7 @@ with the variant (the home already is the variant):
 ```
 ~/.deepsea/<v>/
   variant.yml              the variant's configuration (written by `dsd`)
+  adopted.json             what `dsd adopt` brought from old DSH homes, per source (tools/dsd/README.md)
   plugins/<name>/          e.g. plugins/billing/, plugins/tailscale/state.json,
                            plugins/tailscale/session-owners.json,
                            plugins/remote-workspaces/workspaces.json

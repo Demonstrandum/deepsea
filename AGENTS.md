@@ -62,6 +62,7 @@ usage windows and prices, and the replies are scripts
 | change a plugin's config in a throwaway | `--patch <file>` with a row `- id: <its row id>` and `config:` (it replaces that row's whole config) |
 | read its logs | `dsd logs <id> [server \| app \| relay \| plugin <name>] [--follow]` |
 | change an account mid-test | `dsd sim account <provider> <credential> --set '{…}'` (credential from `run`'s output) |
+| bring an old DSH home (`~/.dsh…`) into a variant | `dsd adopt <old home> <v> --dry-run`, then without `--dry-run`; to try it first, `--throwaway --throwaway-app --detach --simulated` instead of `<v>` (reads the old home, never writes it) |
 | finish | `dsd stop <id>` (always your own: `-v <id>` / `<id>`, never another agent's; never `dsd gc` while others work) |
 
 The details: tools/dsd/README.md, plugins/AGENTS.md → Testing. Real

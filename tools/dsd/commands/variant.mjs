@@ -51,27 +51,31 @@ export async function newVariant(argv) {
   onlyFlags(args, ['source', 'color', 'plugins', 'no-serve'])
   const id = args._[0]
   if (id === undefined || args._.length > 1) usage('dsd new <v> [--source <ref>] [--color <hex>] [--plugins <names|all>] [--no-serve]')
+  printJson(await createVariant(id, { source: args.source, color: args.color, plugins: args.plugins, noServe: args['no-serve'] }))
+}
+
+/** Create a named variant (dsd new; dsd adopt for a variant that does not exist yet). */
+export async function createVariant(id, { source = 'integration/base', color, plugins = 'all', noServe = false } = {}) {
   checkNamedId(id)
   if (existsSync(homeOf(id))) throw new DsdError(`${homeOf(id)} exists already`)
-  if (args.color !== undefined && !/^#[0-9a-fA-F]{6}$/.test(args.color)) usage('--color takes #rrggbb')
-  const source = args.source ?? 'integration/base'
+  if (color !== undefined && !/^#[0-9a-fA-F]{6}$/.test(color)) usage('--color takes #rrggbb')
   resolveSourceCommit(source)
   const recorded = new Set(listVariants().filter(v => !v.throwaway && v.config?.ports).map(v => Number(v.config.ports)))
   const block = await choosePortBlock(recorded)
-  const facts = args['no-serve'] ? undefined : tailnetFacts()
+  const facts = noServe ? undefined : tailnetFacts()
   const serve = Boolean(facts?.dnsName)
   const servePath = serve ? chooseServePath(id, block, facts) : undefined
   const home = homeOf(id)
   mkdirSync(home, { recursive: true, mode: 0o700 })
   writeVariant(id, {
-    id, display: displayName(id), ...(args.color ? { color: args.color } : {}), ports: block, source,
-    plugins: args.plugins ?? 'all', serve, ...(servePath ? { servePath } : {}), created: isoLocal(),
+    id, display: displayName(id), ...(color ? { color } : {}), ports: block, source,
+    plugins, serve, ...(servePath ? { servePath } : {}), created: isoLocal(),
   })
   mkdirSync(logDirOf(id), { recursive: true, mode: 0o700 })
   relink(join(home, 'logs'), logDirOf(id))
   relink(join(home, 'support'), supportDirOf(id))
-  if (!serve && !args['no-serve']) note('Tailscale is not available: the variant is local only (its app talks to the relay on this machine)')
-  printJson({ id, name: variantName(id), display: displayName(id), home, ports: { block, ...ports({ ports: block }) }, source, serve, servePath })
+  if (!serve && !noServe) note('Tailscale is not available: the variant is local only (its app talks to the relay on this machine)')
+  return { id, name: variantName(id), display: displayName(id), home, ports: { block, ...ports({ ports: block }) }, source, serve, servePath }
 }
 
 /**
