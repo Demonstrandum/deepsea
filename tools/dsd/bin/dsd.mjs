@@ -11,6 +11,7 @@ import { run } from '../commands/run.mjs'
 import { script } from '../commands/script.mjs'
 import { supervise } from '../commands/supervise.mjs'
 import { build, newVariant, remove } from '../commands/variant.mjs'
+import { sim } from '../commands/sim.mjs'
 import { topics } from '../commands/topics.mjs'
 import { worktree } from '../commands/worktree.mjs'
 import { REPO } from '../lib/paths.mjs'
@@ -18,12 +19,13 @@ import { DsdError } from '../lib/util.mjs'
 
 const HELP = `dsd — DeepSea developer CLI (tools/dsd/README.md)
 
+  dsd sim [status] | start | stop | accounts [<provider>] | account <provider> <credential> [--set <json>] | fixtures
   dsd new <v> [--source <ref>] [--color <hex>] [--plugins <names|all>] [--no-serve]
   dsd build <v> [--install [--dock]] [--self]
   dsd run <v> [--no-app]   (an installed named variant)
   dsd remove <v> [--home] [--self]
   dsd run <variant> --throwaway | --throwaway-app | --throwaway-server [--visible] [--detach] [--scripted] [--plugins <names|all>]
-          [--app <checkout|ref>] [--patch <file>,…] [--source <ref, e.g. integration/base>] [--harness <ref>] [--ttl <min>] [--keep]
+          [--app <checkout|ref>] [--patch <file>,…] [--source <ref, e.g. integration/base>] [--simulated [--accounts <names>]] [--harness <ref>] [--ttl <min>] [--keep]
   dsd stop [<variant>] [--keep]
   dsd list [--builds] [--json]
   dsd logs [<variant>] [app | relay | server | dsd | plugin <name>] [--lines <n>] [--follow] [--export]
@@ -41,7 +43,7 @@ A <variant> reference is a full id, a unique part of a throwaway's hex, or
 nothing when exactly one of your throwaways is running.
 `
 
-const COMMANDS = { new: newVariant, build, remove, run, stop, list, logs, gc, builds: buildsCommand, link, drive, script, worktree, topics, check, __supervise: supervise }
+const COMMANDS = { new: newVariant, build, remove, sim, run, stop, list, logs, gc, builds: buildsCommand, link, drive, script, worktree, topics, check, __supervise: supervise }
 
 /**
  * Warn when this dsd is run inside another checkout of the same repository:

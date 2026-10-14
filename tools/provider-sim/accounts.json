@@ -1,0 +1,35 @@
+{
+  "accounts": {
+    "openrouter": {
+      "provider": "openrouter",
+      "credential": "sk-or-sim",
+      "env": "OPENROUTER_API_KEY",
+      "settings": { "llm-pi-ai": { "providers": { "openrouter": { "apiKeyEnv": "OPENROUTER_API_KEY" } } } }
+    },
+    "openrouter-low": {
+      "provider": "openrouter",
+      "credential": "sk-or-sim-low",
+      "env": "OPENROUTER_API_KEY",
+      "settings": { "llm-pi-ai": { "providers": { "openrouter": { "apiKeyEnv": "OPENROUTER_API_KEY" } } } },
+      "state": { "creditsMicros": 50000, "usageMicros": 0 }
+    },
+    "openrouter-empty": {
+      "provider": "openrouter",
+      "credential": "sk-or-sim-empty",
+      "env": "OPENROUTER_API_KEY",
+      "settings": { "llm-pi-ai": { "providers": { "openrouter": { "apiKeyEnv": "OPENROUTER_API_KEY" } } } },
+      "state": { "creditsMicros": 0, "usageMicros": 0 }
+    },
+    "deepseek": {
+      "provider": "deepseek",
+      "credential": "sk-sim-deepseek",
+      "env": "DEEPSEEK_API_KEY"
+    },
+    "deepseek-empty": {
+      "provider": "deepseek",
+      "credential": "sk-sim-deepseek-empty",
+      "env": "DEEPSEEK_API_KEY",
+      "state": { "balanceMicros": 0, "grantedMicros": 0 }
+    }
+  }
+}

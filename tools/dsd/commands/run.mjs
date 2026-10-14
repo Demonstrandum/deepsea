@@ -29,7 +29,7 @@
  * `dsd stop` ends either kind.
  */
 import { randomBytes } from 'node:crypto'
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { join, resolve } from 'node:path'
 import { appSocketOf, appSource, buildThrowawayApp, launchApp, waitAppReady } from '../lib/app.mjs'
@@ -37,6 +37,7 @@ import { appRequest } from '../lib/appsocket.mjs'
 import { componentSource } from '../lib/components.mjs'
 import { ensureSourceBuild, resolveSourceCommit } from '../lib/source.mjs'
 import { runNamed } from './variant.mjs'
+import { ensureSim, provisionAccounts } from '../lib/sim.mjs'
 import { buildPaths, ensureBuild, harnessRepo, linkHarness, readLock, resolveHarnessCommit } from '../lib/harness.mjs'
 import { openRunLog } from '../lib/logs.mjs'
 import { preparePlugin, selectPlugins, writePluginPatches } from '../lib/plugins.mjs'
@@ -44,7 +45,7 @@ import { homeOf, logDirOf, REPO, variantName } from '../lib/paths.mjs'
 import { alive, freePort, listenerPids } from '../lib/processes.mjs'
 import { removeVariant, SERVER_ENTRY } from '../lib/remove.mjs'
 import { DsdError, isoLocal, note, onlyFlags, parseArgs, printJson, sleep, usage } from '../lib/util.mjs'
-import { checkNamedId, currentOwner, displayName, writeState, writeVariant } from '../lib/variants.mjs'
+import { checkNamedId, currentOwner, displayName, parseThrowaway, writeState, writeVariant } from '../lib/variants.mjs'
 
 /**
  * Rows every throwaway's web profile gets: no telemetry leaves the machine,
@@ -72,6 +73,31 @@ const SCRIPTED_PATCH = `- id: agent-default-model
     provider: scripted
     model: script
 `
+
+/** Deep-merge plain objects (later wins). */
+const merge = (a, b) => {
+  const out = { ...a }
+  for (const [k, v] of Object.entries(b ?? {})) out[k] = v && typeof v === 'object' && !Array.isArray(v) && out[k] && typeof out[k] === 'object' ? merge(out[k], v) : v
+  return out
+}
+
+/**
+ * Point a throwaway at the provider simulator: start it if needed, provision
+ * its accounts (default: openrouter and deepseek), and write the settings
+ * those routes need. Returns the environment for its server.
+ */
+async function simulate(id, home, build, spec = 'openrouter,deepseek') {
+  const sim = await ensureSim(build)
+  const accounts = await provisionAccounts(sim, spec === true ? 'openrouter,deepseek' : spec, parseThrowaway(id)?.hex ?? id)
+  const env = { DSH_PROVIDER_SIMULATOR: sim.url }
+  for (const account of accounts) if (account.env) env[account.env] = account.credential
+  // The rows the accounts' routes need (`settings` in accounts.json: row id → config), appended
+  // to the throwaway's profile patch; JSON is YAML.
+  const rows = accounts.reduce((all, account) => merge(all, account.settings), {})
+  const patch = join(home, 'profiles', 'web', 'cordis.patch.yml')
+  for (const [row, config] of Object.entries(rows)) appendFileSync(patch, `- id: ${row}\n  config: ${JSON.stringify(config)}\n`)
+  return { url: sim.url, accounts, env }
+}
 
 /** A fresh id `<parent>-<hex>` with no home and no logs yet. */
 function newThrowawayId(parent) {
@@ -176,8 +202,8 @@ async function freePorts(count) {
 }
 
 export async function run(argv) {
-  const args = parseArgs(argv, ['source', 'harness', 'timeout', 'plugins', 'ttl', 'app', 'patch'])
-  onlyFlags(args, ['throwaway', 'throwaway-app', 'throwaway-server', 'detach', 'source', 'harness', 'keep', 'timeout', 'plugins', 'ttl', 'scripted', 'visible', 'app', 'patch', 'no-app'])
+  const args = parseArgs(argv, ['source', 'harness', 'timeout', 'plugins', 'ttl', 'app', 'patch', 'accounts'])
+  onlyFlags(args, ['throwaway', 'throwaway-app', 'throwaway-server', 'detach', 'source', 'harness', 'keep', 'timeout', 'plugins', 'ttl', 'scripted', 'visible', 'app', 'patch', 'no-app', 'simulated', 'accounts'])
   const extraPatches = typeof args.patch === 'string' ? args.patch.split(',').filter(Boolean).map(f => resolve(f)) : []
   for (const file of extraPatches) if (!existsSync(file)) usage(`--patch: no file ${file}`)
   const parent = args._[0]
@@ -227,7 +253,12 @@ export async function run(argv) {
   if (ttl !== undefined && !(ttl > 0)) usage('--ttl takes a number of minutes')
   const expires = ttl === undefined ? undefined : isoLocal(new Date(Date.now() + ttl * 60_000))
   const id = newThrowawayId(parent)
+  if (args.accounts !== undefined && !args.simulated) usage('--accounts goes with --simulated')
   const home = makeHome(id, { parent, commit, build, expires, scripted: Boolean(args.scripted), mode, source })
+  // Simulated providers: the machine's simulator, this throwaway's own test accounts, their keys
+  // in the server's environment and the routes they need in its settings.
+  const simulation = args.simulated ? await simulate(id, home, build, args.accounts) : undefined
+  const simEnv = simulation?.env ?? {}
   const cleanup = async () => removeVariant(id, { keep: Boolean(args.keep) })
   const [port, relayPort] = await freePorts(2)
   const relay = mode === 'full'
@@ -254,7 +285,7 @@ export async function run(argv) {
     mkdirSync(join(logDirOf(id), 'relay'), { recursive: true, mode: 0o700 })
     const consoleFd = openSync(relay.consoleLog, 'a', 0o600)
     // The relay sets DSH_HOME (and DSH_LAUNCH_TOKEN, DEEPSEA_VARIANT, DEEPSEA_RELAY) for the server it starts.
-    const env = { ...process.env }
+    const env = { ...process.env, ...simEnv }
     delete env.DSH_HOME
     child = spawn(process.execPath, relayArgs, { cwd: build, env, detached: true, stdio: ['ignore', consoleFd, consoleFd] })
     closeSync(consoleFd)
@@ -274,7 +305,7 @@ export async function run(argv) {
     }
   } else {
     const log = openRunLog(join(logDirOf(id), 'server'), { tag: 'pending' })
-    child = spawn(process.execPath, serverArgs, { cwd: build, env: { ...process.env, DSH_HOME: home }, detached: true, stdio: ['ignore', log.fd, log.fd] })
+    child = spawn(process.execPath, serverArgs, { cwd: build, env: { ...process.env, ...simEnv, DSH_HOME: home }, detached: true, stdio: ['ignore', log.fd, log.fd] })
     log.identify(`${variantName(id)} server pid ${child.pid} dsh web --port ${port} harness ${commit.slice(0, 10)}${pluginNote}`)
     log.rename(child.pid)
     log.close()
@@ -328,6 +359,7 @@ export async function run(argv) {
   }
 
   printJson({
+    ...(simulation ? { simulated: { url: simulation.url, accounts: simulation.accounts.map(a => ({ name: a.name, provider: a.provider, credential: a.credential })) } } : {}),
     id, name: variantName(id), display: displayName(id), home, mode,
     url: facts.url, login, token: facts.token,
     pid: child.pid, port, log: facts.log, harness: commit.slice(0, 10), ...(source ? { source: `${source.ref} (${source.commit.slice(0, 10)})` } : {}), plugins: plugins.map(p => p.name), detached: Boolean(args.detach), expires,

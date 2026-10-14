@@ -115,7 +115,9 @@ worktree that needs that commit:
 - `dsd gc` removes builds that no variant and no worktree uses.
 
 Names under `~/.deepsea/` that are not variant homes start with `_`, which
-no variant id may contain, so they never collide with one.
+no variant id may contain, so they never collide with one: `_builds/`,
+`_backups/`, and `_sim/`, the provider simulator's accounts
+(tools/provider-sim/README.md).
 
 Private plugins are not part of this layout yet: they arrive last, as an
 `extras` topic, whose shape is decided then.
@@ -132,6 +134,7 @@ apps/linux/        Electron client
 plugins/<name>/    one installable package per plugin; plugins/AGENTS.md
 packages/<name>/   code shared by plugins and tools (`@deepsea/<name>`, no dependencies)
 tools/dsd/         `dsd`, the developer CLI: variants, topics, worktrees
+tools/provider-sim/ simulated model providers for tests (`dsd run … --simulated`)
 tools/             bootstrap and uninstall (plain shell, for fresh machines)
 recipes/           one file per completed setup or change (later)
 harness.lock       the harness repository and the commit pinned

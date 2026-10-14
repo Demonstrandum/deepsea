@@ -138,6 +138,12 @@ copies identical.
   (`/reboot`, `/restore`, a cold start), use `--throwaway`: the same app
   behind a relay, as an installed variant runs; `dsd logs <id> server
   --follow` shows each start.
+- Anything that touches model providers (routes, the model picker, sign-in,
+  keys, billing, quotas, errors from a provider) is tested with
+  `--simulated` (tools/provider-sim/README.md): every provider is replaced
+  by the local simulator, with test accounts that keep credit, balance and
+  usage, and the same scripts. Real accounts are used only by the user, or
+  with their go-ahead.
 - Before calling a topic done, check it beside the others: `dsd topics
   check` (conflicts) and, after `dsd topics integrate`, a throwaway from
   `--source integration/base --plugins all`.
