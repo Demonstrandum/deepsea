@@ -68,6 +68,10 @@ One module and one document each, in `providers/`, with the test accounts in
 | [OpenRouter](providers/openrouter.md) | `openrouter.ai` | `openrouter`, `openrouter-low`, `openrouter-empty` |
 | [DeepSeek](providers/deepseek.md) | `api.deepseek.com` | `deepseek`, `deepseek-empty` |
 | [Anthropic](providers/anthropic.md), API key and Plan | `api.anthropic.com`, `claude.ai`, `platform.claude.com` | `anthropic`, `anthropic-low`, `anthropic-max`, `anthropic-max-80` |
+| [OpenAI](providers/openai.md), API key and the ChatGPT/Codex Plan | `api.openai.com`, `auth.openai.com`, `chatgpt.com` | `openai`, `openai-low`, `codex-plus`, `codex-pro-80` |
+| [Gemini](providers/gemini.md) | `generativelanguage.googleapis.com` | `gemini`, `gemini-low` |
+| [Moonshot](providers/moonshot.md): Kimi API key and the Kimi Code Plan | `api.moonshot.ai`, `.cn`, `api.kimi.com`, `auth.kimi.com`, `www.kimi.com` | `kimi`, `kimi-plan` |
+| [Z.ai](providers/zai.md) | `api.z.ai`, `open.bigmodel.cn` | `zai`, `zai-empty` |
 
 Both wire formats stream (server-sent events) or answer whole, with text,
 reasoning, tool calls and usage. A script plays across a turn as with the
@@ -97,7 +101,9 @@ for providers with a Plan sign-in.
    account reads (`plugins/billing`).
 2. Write `providers/<name>.mjs` (see `providers/index.mjs` for its exports;
    `common.mjs`'s `generate()` plays the script in the OpenAI or Anthropic
-   wire format; `wire.mjs` for others), answering exactly those endpoints in
+   wire format; `wire-responses.mjs` (OpenAI Responses), `wire-gemini.mjs`
+   and `wire-completions.mjs` (chat-completion dialects) for others; a new
+   wire format gets its own file), answering exactly those endpoints in
    the provider's own shapes and errors, and `providers/<name>.md`.
 3. Add `fixtures/<name>.json`: a key fixture names the environment variable
    the route reads its key from (`env`) and the rows the route needs
@@ -112,7 +118,9 @@ check the credentials document it writes.
 
 ## Not simulated yet
 
-Each provider's document lists its gaps. Across providers: a conversation
-whose last turn failed after a tool call reads a new prompt as the old
-turn's continuation (the tool result and the prompt arrive in one user
-message): start a new session for the next script.
+Each provider's document lists its gaps. Across providers: after a turn
+that failed (pi-ai drops the failed reply, so the next prompt follows the
+failed one, or shares the message carrying its tool results), a script or
+`say`/`help` starts a new turn, but any other text is read as context, and
+the failed script plays again: start the next prompt with a script, or a
+new session.

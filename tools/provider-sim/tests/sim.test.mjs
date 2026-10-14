@@ -41,6 +41,16 @@ test('the prompt is the message that starts the turn; context after it and tool 
   ])
   assert.deepEqual(promptOf(anthropic), { prompt: 'say hi', position: 0, lastResults: [] })
   assert.equal(costMicros({ input: 1, output: 2 }, { input: 1000, output: 500, cacheRead: 0, cacheWrite: 0 }), 2000)
+  // After a failed turn: the next prompt follows the failed one, or shares the tool results' message.
+  const failed = '{"cmd":"error","kind":"server"}'
+  assert.deepEqual(promptOf(normalize('openai', [{ role: 'user', content: failed }, { role: 'user', content: 'say again' }])), { prompt: 'say again', position: 0, lastResults: [] })
+  assert.equal(promptOf(normalize('openai', [{ role: 'user', content: failed }, { role: 'user', content: 'runtime context' }])).prompt, failed)
+  const merged = normalize('anthropic', [
+    { role: 'user', content: '{"cmd":"tool","name":"t"}' },
+    { role: 'assistant', content: [{ type: 'tool_use', id: 'u1', name: 't', input: {} }] },
+    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'u1', content: 'interrupted' }, { type: 'text', text: '{"cmd":"say","text":"new"}' }] },
+  ])
+  assert.deepEqual(promptOf(merged), { prompt: '{"cmd":"say","text":"new"}', position: 0, lastResults: [] })
 })
 
 test('the titler and compaction get the scripted model\'s answers, never a replay of the script', async () => {

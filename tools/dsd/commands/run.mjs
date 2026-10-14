@@ -261,7 +261,11 @@ export async function run(argv) {
   // Simulated providers: the machine's simulator, this throwaway's own test accounts, their keys
   // in the server's environment and the routes they need in its settings.
   const simulation = args.simulated ? await simulate(id, home, build, args.accounts) : undefined
-  const simEnv = simulation?.env ?? {}
+  // The Anthropic SDK falls back to a credentials file in ~/.config/anthropic for a client
+  // given no key (pi-ai's Kimi Code route is one): a throwaway reads its own, empty directory.
+  const anthropicConfig = join(home, 'anthropic-config')
+  mkdirSync(anthropicConfig, { recursive: true, mode: 0o700 })
+  const simEnv = { ANTHROPIC_CONFIG_DIR: anthropicConfig, ...simulation?.env }
   const cleanup = async () => removeVariant(id, { keep: Boolean(args.keep) })
   const [port, relayPort] = await freePorts(2)
   const relay = mode === 'full'

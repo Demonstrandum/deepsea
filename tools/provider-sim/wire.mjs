@@ -49,6 +49,7 @@ export function normalize(format, messages) {
  */
 export function promptOf(conversation) {
   let index = -1
+  let prompt = ''
   for (let i = 0; i < conversation.length; i++) {
     const m = conversation[i]
     if (m.role !== 'user' || m.texts.length === 0) continue
@@ -56,14 +57,23 @@ export function promptOf(conversation) {
     // right after the prompt (context the harness adds) do not start one.
     const previous = conversation.slice(0, i).filter(x => x.role !== 'system').at(-1)
     const startsTurn = previous === undefined || (previous.role === 'assistant' && previous.toolCalls === 0)
-    if (startsTurn && m.toolResults.length === 0) index = i
+    if (startsTurn && m.toolResults.length === 0) { index = i; prompt = m.texts[0]; continue }
+    // A failed turn leaves no reply: the next prompt follows the failed one
+    // (or, after a tool call, shares the message carrying its results). A
+    // script or a plain command there starts a new turn; harness context is
+    // neither.
+    const next = m.texts.find(looksLikePrompt)
+    if (next !== undefined && (previous?.role === 'user' || m.toolResults.length > 0)) { index = i; prompt = next }
   }
   if (index === -1) return { prompt: '', position: 0, lastResults: [] }
   const after = conversation.slice(index + 1)
   const results = []
   for (let i = after.length - 1; i >= 0 && after[i].role !== 'assistant'; i--) results.unshift(...after[i].toolResults)
-  return { prompt: conversation[index].texts[0], position: after.filter(m => m.role === 'assistant').length, lastResults: results }
+  return { prompt, position: after.filter(m => m.role === 'assistant').length, lastResults: results }
 }
+
+/** Whether a text is a prompt the simulator acts on: a script, or `say …` / `help`. */
+const looksLikePrompt = text => isScript(text) || /^\s*(?:say\s+\S|help\s*$)/i.test(text)
 
 // ---- what to say -------------------------------------------------------------------
 
