@@ -109,7 +109,6 @@ export async function build(argv) {
   const harnessBuild = readlinkSync(join(dir, 'harness'))
   const plugins = variantPlugins(config, dir)
   const port = ports(config)
-  installBundles(plugins, home, harnessBuild)
   const facts = config.serve ? tailnetFacts() : undefined
   const url = config.serve && facts?.dnsName ? `https://${facts.dnsName}${config.servePath}/` : `http://127.0.0.1:${port.relay}/`
   const out = mkdtempSync(join(tmpdir(), `deepsea-build-${id}-`))
@@ -121,6 +120,8 @@ export async function build(argv) {
   const result = { id, source: `${config.source} (${commit.slice(0, 10)})`, build: dir, plugins: plugins.map(p => p.name), app: builtApp.app, url }
   if (!args.install) { printJson(result); return }
 
+  // Only an install touches the home: the running server reads its profile's bundles.
+  installBundles(plugins, home, harnessBuild)
   const supportDir = supportDirOf(id)
   const app = installApp(id, builtApp.app)
   rmSync(out, { recursive: true, force: true })
