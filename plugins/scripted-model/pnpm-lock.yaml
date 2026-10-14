@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@deepsea/script':
+        specifier: link:../../packages/script
+        version: link:../../packages/script
       '@deepseek-ai/dsh-llm':
         specifier: link:../../harness/packages/llm/llm
         version: link:../../harness/packages/llm/llm

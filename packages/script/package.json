@@ -1,0 +1,16 @@
+{
+  "name": "@deepsea/script",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DeepSea: the JSONL script language that dictates a test model's replies, shared by the scripted model and the provider simulator.",
+  "license": "MIT",
+  "type": "module",
+  "main": "index.mjs",
+  "exports": {
+    ".": "./index.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.mjs"
+  ]
+}

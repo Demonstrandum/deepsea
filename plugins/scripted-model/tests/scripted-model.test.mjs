@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { ScriptedAdapter } from '../adapter.mjs'
-import { chunk, FINISHED_REPLY, helpText, isScript, ORDERS_REPLY, parseScript, plainReply, segments } from '../script.mjs'
+import { chunk, FINISHED_REPLY, helpText, isScript, ORDERS_REPLY, parseScript, plainReply, segments } from '@deepsea/script'
 
 const user = text => ({ role: 'user', content: [{ type: 'text', text }] })
 const assistant = blocks => ({ role: 'assistant', content: blocks })

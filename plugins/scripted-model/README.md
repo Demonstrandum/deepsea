@@ -95,6 +95,6 @@ Images and files in replies; scripts spanning several user messages.
 pnpm install && pnpm test
 ```
 
-`script.mjs` parses and validates (no harness imports); `adapter.mjs` is
+`@deepsea/script` (packages/script, shared with the provider simulator) parses and validates; `adapter.mjs` is
 the `LlmAdapter`; `index.js` registers it (config: `route`, default
 `scripted`).

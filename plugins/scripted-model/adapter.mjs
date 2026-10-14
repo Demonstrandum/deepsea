@@ -4,7 +4,7 @@
  */
 import { createHash } from 'node:crypto'
 import { LlmAdapter, LlmError } from '@deepseek-ai/dsh-llm'
-import { chunk, ERROR_KINDS, FINISHED_REPLY, isScript, parseScript, plainReply, segments } from './script.mjs'
+import { chunk, ERROR_KINDS, FINISHED_REPLY, isScript, parseScript, plainReply, segments } from '@deepsea/script'
 
 export const MODEL_ID = 'script'
 const DEFAULT_TITLE = 'scripted session'

@@ -1,6 +1,10 @@
 /**
- * Scripts for the scripted model: parsing, validation, and the split into
- * responses. Pure: no harness imports, so it is testable on its own.
+ * Model scripts: the JSONL language a prompt uses to dictate a model's exact
+ * reply (text, reasoning, tool calls, checks, usage, errors), with parsing,
+ * validation, the split into responses, and the plain prompts (`say <text>`,
+ * `help`). Shared by the scripted model (plugins/scripted-model) and the
+ * provider simulator (tools/provider-sim), which plays the same scripts in
+ * each provider's wire protocol. Pure: no dependencies.
  */
 
 /** The reply to a prompt that is not a script and not a plain command. */
