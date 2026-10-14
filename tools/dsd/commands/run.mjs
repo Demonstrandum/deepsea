@@ -37,7 +37,7 @@ import { appRequest } from '../lib/appsocket.mjs'
 import { componentSource } from '../lib/components.mjs'
 import { ensureSourceBuild, resolveSourceCommit } from '../lib/source.mjs'
 import { runNamed } from './variant.mjs'
-import { ensureSim, provisionAccounts } from '../lib/sim.mjs'
+import { credentialsDocument, ensureSim, provisionAccounts } from '../lib/sim.mjs'
 import { buildPaths, ensureBuild, harnessRepo, linkHarness, readLock, resolveHarnessCommit } from '../lib/harness.mjs'
 import { openRunLog } from '../lib/logs.mjs'
 import { preparePlugin, selectPlugins, writePluginPatches } from '../lib/plugins.mjs'
@@ -84,7 +84,8 @@ const merge = (a, b) => {
 /**
  * Point a throwaway at the provider simulator: start it if needed, provision
  * its accounts (default: openrouter and deepseek), and write the settings
- * those routes need. Returns the environment for its server.
+ * those routes need and the sign-ins of Plan accounts (the grant pi-ai would
+ * have stored after a browser sign-in). Returns the environment for its server.
  */
 async function simulate(id, home, build, spec = 'openrouter,deepseek') {
   const sim = await ensureSim(build)
@@ -96,6 +97,8 @@ async function simulate(id, home, build, spec = 'openrouter,deepseek') {
   const rows = accounts.reduce((all, account) => merge(all, account.settings), {})
   const patch = join(home, 'profiles', 'web', 'cordis.patch.yml')
   for (const [row, config] of Object.entries(rows)) appendFileSync(patch, `- id: ${row}\n  config: ${JSON.stringify(config)}\n`)
+  const credentials = credentialsDocument(accounts)
+  if (credentials) writeFileSync(join(home, '.credentials.yaml'), credentials, { mode: 0o600, flag: 'wx' })
   return { url: sim.url, accounts, env }
 }
 
@@ -359,7 +362,7 @@ export async function run(argv) {
   }
 
   printJson({
-    ...(simulation ? { simulated: { url: simulation.url, accounts: simulation.accounts.map(a => ({ name: a.name, provider: a.provider, credential: a.credential })) } } : {}),
+    ...(simulation ? { simulated: { url: simulation.url, accounts: simulation.accounts.map(a => ({ name: a.name, provider: a.provider, credential: a.credential, ...(a.route ? { signedIn: a.route } : {}) })) } } : {}),
     id, name: variantName(id), display: displayName(id), home, mode,
     url: facts.url, login, token: facts.token,
     pid: child.pid, port, log: facts.log, harness: commit.slice(0, 10), ...(source ? { source: `${source.ref} (${source.commit.slice(0, 10)})` } : {}), plugins: plugins.map(p => p.name), detached: Boolean(args.detach), expires,

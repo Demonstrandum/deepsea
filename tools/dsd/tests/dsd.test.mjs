@@ -269,3 +269,26 @@ test('logs: kinds and references, the current run, last lines, export names', as
   assert.equal(exportName('release', 'app', '/x/2026-10-07T19-04-14-4410.log'), 'deepsea.release-app-2026-10-07T19-04-14.log')
   assert.equal(exportName('lab', 'plugin-browser', '/x/2026-10-07T19-04-14-4410.jsonl'), 'deepsea.lab-plugin-browser-2026-10-07T19-04-14.jsonl')
 })
+
+test('simulated accounts: a Plan fixture is signed in, its grant written as credentials-local stores it', async () => {
+  const { createSimulator } = await import('../../provider-sim/server.mjs')
+  const { credentialsDocument, provisionAccounts } = await import('../lib/sim.mjs')
+  const sim = await createSimulator({ db: join(root, 'sim.sqlite') })
+  await new Promise(resolve => sim.server.listen(0, '127.0.0.1', resolve))
+  try {
+    const url = `http://127.0.0.1:${sim.server.address().port}`
+    const accounts = await provisionAccounts({ url }, 'anthropic,anthropic-max-80', 'abc123')
+    assert.deepEqual(accounts.map(a => [a.credential, a.route]), [['sk-ant-api03-sim-abc123', undefined], ['max80+abc123@example.com', 'anthropic-oauth']])
+    const document = JSON.parse(credentialsDocument(accounts))
+    const record = document.records['llm-pi-ai/anthropic-oauth']
+    assert.deepEqual([document.version, record.kind, record.payload.type, Object.keys(document.records).length], [1, 'grant', 'oauth', 1])
+    assert.ok(record.payload.expires > Date.now() + 50 * 60_000 && record.payload.expires < Date.now() + 56 * 60_000)
+    const usage = await (await fetch(`${url}/api.anthropic.com/api/oauth/usage`, { headers: { authorization: `Bearer ${record.payload.access}`, 'anthropic-beta': 'oauth-2025-04-20' } })).json()
+    assert.equal(usage.five_hour.utilization, 80)
+    assert.equal(credentialsDocument(accounts.slice(0, 1)), undefined)
+    await assert.rejects(provisionAccounts({ url }, 'anthropic-max,anthropic-max-80', 'abc124'), /both sign in to anthropic-oauth/)
+  } finally {
+    await new Promise(resolve => sim.server.close(resolve))
+    sim.store.close()
+  }
+})

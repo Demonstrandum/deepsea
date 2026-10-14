@@ -8,13 +8,15 @@
  *   node server.mjs --db <sqlite file> [--port <n>] [--catalog <pi-ai providers dir>] [--host 127.0.0.1]
  *
  * Simulator endpoints of its own, under /_sim/: status, accounts
- * (?provider=), and account (POST {provider, kind, credential, state}) to
- * create or change one.
+ * (?provider=), account (POST {provider, kind, credential, state}) to
+ * create or change one, and sign-in (POST {provider, email, plan?,
+ * accessSeconds?}) to sign an email in without a browser: its tokens.
  */
 import { readdirSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { anthropic } from './anthropic.mjs'
 import { deepseek, initialState, openrouter, providerFor } from './providers.mjs'
 import { openStore } from './store.mjs'
 
@@ -58,7 +60,7 @@ export async function createSimulator({ db, catalogDir, log = () => {} }) {
       ctx.json(res, status, { type: 'error', error: { type, code: status, message } }, headers)
     },
   }
-  const handlers = { openrouter: openrouter(ctx, catalog), deepseek: deepseek(ctx, catalog) }
+  const handlers = { openrouter: openrouter(ctx, catalog), deepseek: deepseek(ctx, catalog), anthropic: anthropic(ctx, catalog) }
 
   const readBody = req => new Promise((resolve, reject) => {
     const parts = []
@@ -76,9 +78,14 @@ export async function createSimulator({ db, catalogDir, log = () => {} }) {
     }
     if (path === '/_sim/account' && req.method === 'POST') {
       const { provider, kind = 'key', credential, state } = JSON.parse(text || '{}')
-      if (!handlers[provider] || !credential) return ctx.error(res, 400, 'invalid_request', 'provider and credential are required')
-      const account = store.account(provider, kind, credential, () => initialState(provider, credential))
+      if (!handlers[provider] || !credential || !['key', 'email'].includes(kind)) return ctx.error(res, 400, 'invalid_request', 'provider and credential are required, kind is key or email')
+      const account = store.account(provider, kind, credential, () => initialState(provider, credential, kind))
       return ctx.json(res, 200, state ? store.update(account.id, s => ({ ...s, ...state })) : account)
+    }
+    if (path === '/_sim/sign-in' && req.method === 'POST') {
+      const { provider, ...options } = JSON.parse(text || '{}')
+      if (typeof handlers[provider]?.signIn !== 'function') return ctx.error(res, 400, 'invalid_request', `${provider} has no simulated sign-in`)
+      try { return ctx.json(res, 200, handlers[provider].signIn(options)) } catch (error) { return ctx.error(res, 400, 'invalid_request', error.message) }
     }
     return ctx.error(res, 404, 'not_found', `no ${path}`)
   }
@@ -94,10 +101,11 @@ export async function createSimulator({ db, catalogDir, log = () => {} }) {
       const provider = providerFor(host)
       if (!provider) return ctx.error(res, 501, 'not_simulated', `${host || '(no host)'} is not simulated`)
       let body = {}
-      if (text) {
+      if (text && /^application\/x-www-form-urlencoded\b/i.test(req.headers['content-type'] ?? '')) body = Object.fromEntries(new URLSearchParams(text))
+      else if (text) {
         try { body = JSON.parse(text) } catch { return ctx.error(res, 400, 'invalid_request_error', 'the body is not JSON') }
       }
-      return await handlers[provider](req, res, `/${rest.join('/')}`, body)
+      return await handlers[provider](req, res, `/${rest.join('/')}`, body, host)
     } catch (error) {
       log(`error: ${error?.stack ?? error}`)
       if (!res.headersSent) ctx.error(res, 500, 'api_error', String(error?.message ?? error))

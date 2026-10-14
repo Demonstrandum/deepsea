@@ -12,7 +12,10 @@
  *                 /chat/completions and /v1/chat/completions (OpenAI),
  *                 /models, /user/balance. Accounts: a balance, spent at
  *                 catalog prices; an empty balance is 402.
+ * api.anthropic.com, claude.ai, platform.claude.com  Anthropic: API keys and
+ *                 Plan sign-ins (anthropic.mjs).
  */
+import { anthropicState } from './anthropic.mjs'
 import { anthropicMessage, anthropicStream, normalize, openaiMessage, openaiStream, respond, usageOf } from './wire.mjs'
 
 /** New accounts start with this much credit or balance: $10. */
@@ -28,7 +31,8 @@ export function costMicros(cost, usage) {
 const dollars = micros => micros / 1e6
 
 /** A new account's state. */
-export function initialState(provider, credential) {
+export function initialState(provider, credential, kind = 'key') {
+  if (provider === 'anthropic') return anthropicState(kind, credential)
   if (provider === 'openrouter') return { creditsMicros: STARTING_MICROS, usageMicros: 0, label: `sk-or-…${credential.slice(-4)}` }
   return { balanceMicros: STARTING_MICROS, grantedMicros: 0 }
 }
@@ -44,23 +48,26 @@ const generationId = prefix => `${prefix}${Date.now().toString(36)}${(++generati
 
 /**
  * Play one model request: the script's response for this point of the turn,
- * charged to the account. `format` is 'openai' or 'anthropic'.
+ * charged to the account (`charge(micros, usage)`, before anything is sent).
+ * `format` is 'openai' or 'anthropic'; `fail(status, kind, message, headers)`
+ * answers a script's error in the provider's shape.
  */
-async function generate(ctx, { req, res, body, format, account, provider, catalog, charge, idPrefix, reasoningField }) {
-  const messages = format === 'anthropic' ? body.messages : body.messages
+export async function generate(ctx, { req, res, body, format, account, provider, catalog, charge, idPrefix, reasoningField, fail }) {
+  const messages = body.messages
   const conversation = normalize(format, messages)
   const plan = respond(conversation)
-  if (plan.invalid) return ctx.error(res, 400, 'invalid_request_error', plan.invalid)
+  const refuse = fail ?? ((status, kind, message, headers) => ctx.error(res, status, kind, message, headers))
+  if (plan.invalid) return refuse(400, 'invalid_request_error', plan.invalid)
   if (plan.failure) {
     const headers = plan.failure.retryAfter ? { 'retry-after': String(plan.failure.retryAfter) } : {}
-    return ctx.error(res, plan.failure.status, plan.failure.kind, plan.failure.message, headers)
+    return refuse(plan.failure.status, plan.failure.kind, plan.failure.message, headers)
   }
   const model = String(body.model ?? 'unknown')
   const usage = usageOf(plan.steps, JSON.stringify(messages ?? []) + JSON.stringify(body.system ?? ''))
   const micros = costMicros(catalog.cost(provider, model), usage)
   const id = generationId(idPrefix)
   ctx.store.recordGeneration({ id, account: account.id, provider, model, ...usage, costMicros: micros, streamed: body.stream === true })
-  charge(micros)
+  charge(micros, usage)
   const controller = new AbortController()
   req.on('close', () => controller.abort())
   const r = { id, model, steps: plan.steps, usage, signal: controller.signal, reasoningField, ...(provider === 'openrouter' ? { cost: dollars(micros) } : {}) }
@@ -126,5 +133,6 @@ export function deepseek(ctx, catalog) {
 export function providerFor(host) {
   if (host === 'openrouter.ai') return 'openrouter'
   if (host === 'api.deepseek.com') return 'deepseek'
+  if (['api.anthropic.com', 'claude.ai', 'platform.claude.com', 'console.anthropic.com'].includes(host)) return 'anthropic'
   return undefined
 }

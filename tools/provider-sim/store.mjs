@@ -7,6 +7,10 @@
  * string, or an email address given to a simulated sign-in. Its `state` is a
  * provider-specific JSON object (credit, balance, usage windows, plan); money
  * is in micro-dollars (integers), so totals never drift.
+ *
+ * Tokens a simulated sign-in issues (authorization codes, OAuth access and
+ * refresh tokens) are rows of their own, each tied to an account, with an
+ * expiry and a revoked flag.
  */
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
@@ -34,6 +38,15 @@ CREATE TABLE IF NOT EXISTS generations (
   cache_write INTEGER NOT NULL,
   cost_micros INTEGER NOT NULL,
   streamed INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS tokens (
+  token TEXT PRIMARY KEY,
+  account INTEGER NOT NULL REFERENCES accounts(id),
+  kind TEXT NOT NULL,
+  created TEXT NOT NULL,
+  expires TEXT,
+  revoked INTEGER NOT NULL DEFAULT 0,
+  data TEXT NOT NULL DEFAULT '{}'
 );
 `
 
@@ -108,6 +121,29 @@ export function openStore(file) {
     },
     /** One recorded response, or undefined. */
     generation(id) { return db.prepare('SELECT * FROM generations WHERE id = ?').get(id) },
+    /**
+     * Record a token: `kind` ('code', 'access', 'refresh'), valid for `seconds`
+     * (none: until used or revoked), with `data` of its own.
+     */
+    issueToken({ token, account, kind, seconds, data = {} }) {
+      const now = Date.now()
+      db.prepare('INSERT INTO tokens (token, account, kind, created, expires, data) VALUES (?, ?, ?, ?, ?, ?)').run(token, account, kind,
+        new Date(now).toISOString(), seconds === undefined ? null : new Date(now + seconds * 1000).toISOString(), JSON.stringify(data))
+    },
+    /** A token's row (`data` parsed), or undefined. */
+    token(value) {
+      const r = db.prepare('SELECT * FROM tokens WHERE token = ?').get(value)
+      return r === undefined ? undefined : { ...r, revoked: r.revoked === 1, data: JSON.parse(r.data) }
+    },
+    /** Use a single-use token of `kind` up: its row, or undefined when unknown, used, expired or of another kind. */
+    consumeToken(value, kind) {
+      return transaction(() => {
+        const r = db.prepare('SELECT * FROM tokens WHERE token = ?').get(value)
+        if (!r || r.kind !== kind || r.revoked === 1 || (r.expires !== null && Date.parse(r.expires) <= Date.now())) return undefined
+        db.prepare('UPDATE tokens SET revoked = 1 WHERE token = ?').run(value)
+        return { ...r, revoked: true, data: JSON.parse(r.data) }
+      })
+    },
     close() { db.close() },
   }
 }

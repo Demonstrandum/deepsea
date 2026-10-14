@@ -34,7 +34,9 @@ export async function sim(argv) {
       if (args.set !== undefined) {
         try { state = JSON.parse(args.set) } catch { usage('--set takes a JSON object, e.g. \'{"creditsMicros": 0}\'') }
       }
-      const response = await fetch(`${running.url}/_sim/account`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ provider, credential, ...(state ? { state } : {}) }) })
+      // An email address names a sign-in account (a Plan), anything else an API key.
+      const kind = credential.includes('@') ? 'email' : 'key'
+      const response = await fetch(`${running.url}/_sim/account`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ provider, kind, credential, ...(state ? { state } : {}) }) })
       if (!response.ok) throw new DsdError(await response.text())
       return printJson(await response.json())
     }

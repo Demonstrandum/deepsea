@@ -10,7 +10,10 @@
  * `--accounts openrouter,deepseek-empty` gives a throwaway fresh accounts in
  * those states, its credentials suffixed with the throwaway's id so no two
  * throwaways share one; `name=<credential>` uses that credential as it is (a
- * persistent account, created on first use).
+ * persistent account, created on first use). A sign-in fixture (`kind:
+ * email`, `signIn: <route>`) names an email address instead of a key (the
+ * suffix goes before the `@`): the simulator signs it in and the throwaway
+ * starts with the grant stored for that route.
  */
 import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -101,10 +104,19 @@ export function fixtures() {
   return JSON.parse(readFileSync(FIXTURES(), 'utf8')).accounts
 }
 
+/** POST JSON to the simulator; the answer's JSON. */
+async function simPost(sim, path, body, what) {
+  const response = await fetch(`${sim.url}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+  if (!response.ok) throw new DsdError(`the simulator refused ${what}: ${await response.text()}`)
+  return response.json()
+}
+
 /**
  * Accounts for a throwaway: each `name` or `name=<credential>` resolved,
- * created (or reset to the fixture's state when fresh) in the simulator.
- * @returns {Promise<Array<{ name, provider, credential, env, settings? }>>}
+ * created (or reset to the fixture's state when fresh) in the simulator. A
+ * sign-in fixture is signed in: its `grant` is the OAuth credential pi-ai
+ * stores for the route (`{ type: 'oauth', access, refresh, expires }`).
+ * @returns {Promise<Array<{ name, provider, credential, env?, settings?, route?, grant? }>>}
  */
 export async function provisionAccounts(sim, spec, suffix) {
   const known = fixtures()
@@ -113,13 +125,28 @@ export async function provisionAccounts(sim, spec, suffix) {
     const [name, given] = item.split('=')
     const fixture = known[name]
     if (!fixture) throw new DsdError(`no test account "${name}" (have: ${Object.keys(known).join(', ')})`)
-    const credential = given ?? `${fixture.credential}-${suffix}`
-    const response = await fetch(`${sim.url}/_sim/account`, {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ provider: fixture.provider, kind: 'key', credential, ...(given === undefined && fixture.state ? { state: fixture.state } : {}) }),
-    })
-    if (!response.ok) throw new DsdError(`the simulator refused account ${name}: ${await response.text()}`)
-    out.push({ name, provider: fixture.provider, credential, env: fixture.env, settings: fixture.settings })
+    const kind = fixture.kind ?? 'key'
+    const credential = given ?? (kind === 'email' ? fixture.credential.replace('@', `+${suffix}@`) : `${fixture.credential}-${suffix}`)
+    await simPost(sim, '/_sim/account', { provider: fixture.provider, kind, credential, ...(given === undefined && fixture.state ? { state: fixture.state } : {}) }, `account ${name}`)
+    const account = { name, provider: fixture.provider, credential, env: fixture.env, settings: fixture.settings }
+    if (fixture.signIn) {
+      const route = fixture.signIn
+      if (out.some(a => a.route === route)) throw new DsdError(`${out.find(a => a.route === route).name} and ${name} both sign in to ${route}; a throwaway holds one sign-in per route`)
+      const issued = await simPost(sim, '/_sim/sign-in', { provider: fixture.provider, email: credential }, `the sign-in of ${name}`)
+      // As pi-ai's login stores it: expiry five minutes early, so it refreshes in time.
+      Object.assign(account, { route, grant: { type: 'oauth', refresh: issued.refresh_token, access: issued.access_token, expires: Date.now() + issued.expires_in * 1000 - 5 * 60 * 1000 } })
+    }
+    out.push(account)
   }
   return out
+}
+
+/**
+ * The credentials document of a home holding these sign-ins (`$DSH_HOME/.credentials.yaml`,
+ * credentials-local's version 1: records keyed `llm-pi-ai/<route>`, a grant's payload
+ * pi-ai's own credential), or undefined when there are none. JSON is YAML.
+ */
+export function credentialsDocument(accounts) {
+  const records = Object.fromEntries(accounts.filter(a => a.grant).map(a => [`llm-pi-ai/${a.route}`, { kind: 'grant', payload: a.grant }]))
+  return Object.keys(records).length === 0 ? undefined : `${JSON.stringify({ version: 1, records }, null, 2)}\n`
 }
