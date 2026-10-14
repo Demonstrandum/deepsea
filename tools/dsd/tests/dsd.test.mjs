@@ -354,10 +354,17 @@ test('plugins become bundles of the profile: dsd owns @deepsea/*, the rest stays
     manifest.dependencies['left-alone'] = '1.0.0'
     manifest.dsh.profile.bundles.push('left-alone')
     writeFileSync(manifestPath, JSON.stringify(manifest))
+    // A plugin of another scope that dsd installed is dsd's to take out again.
+    const other = { name: 'other', dir: join(root, 'plugins', 'other'), pkg: { name: 'other-plugin' } }
+    mkdirSync(other.dir, { recursive: true })
+    installBundles([plugin('server-log'), other], home, harness)
+    assert.ok(lstatSync(join(home, 'profiles', 'web', 'node_modules', 'other-plugin')).isSymbolicLink())
     installBundles([plugin('server-log')], home, harness)
     manifest = JSON.parse(read(manifestPath, 'utf8'))
     assert.deepEqual(Object.keys(manifest.dependencies), ['left-alone', '@deepsea/server-log'])
     assert.ok(manifest.dsh.profile.bundles.includes('left-alone'))
+    assert.ok(!manifest.dsh.profile.bundles.includes('other-plugin'))
     assert.equal(existsSync(join(home, 'profiles', 'web', 'node_modules', '@deepsea', 'alpha')), false)
+    assert.equal(existsSync(join(home, 'profiles', 'web', 'node_modules', 'other-plugin')), false)
   } finally { rmSync(root, { recursive: true, force: true }) }
 })

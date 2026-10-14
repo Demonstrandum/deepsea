@@ -7,7 +7,7 @@
  */
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { extrasDir, REPO } from './paths.mjs'
 import { DsdError, note, usage } from './util.mjs'
 
@@ -100,9 +100,10 @@ export const profileDirOf = home => join(home, 'profiles', 'web')
  * dependency and a `dsh.profile.bundles` entry (in the given order, after the
  * profile's own), with `node_modules/<package>` linked to its directory. The
  * server then loads each from its own bundle patch, and the Plugins panel
- * lists it as an installed bundle, with its card. dsd owns the profile's
- * `@deepsea/*` packages: others than these are taken out; anything else the
- * person installed stays.
+ * lists it as an installed bundle, with its card. dsd owns the packages it
+ * installed (recorded in the profile's `deepsea-bundles.json`; before that
+ * record, the `@deepsea/*` ones): those not selected now are taken out;
+ * anything else the person installed stays.
  * @param {object[]} plugins - from selectPlugins, in load order.
  * @param {string} home - the variant's home.
  * @param {string} harnessBuild - the harness build the variant runs.
@@ -117,7 +118,9 @@ export function installBundles(plugins, home, harnessBuild) {
   if (init.status !== 0) throw new DsdError(`setting up the profile in ${dir} failed: ${(init.stderr || init.stdout).trim().split('\n').slice(-3).join(' ')}`)
   const manifestPath = join(dir, 'package.json')
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
-  const ours = name => name.startsWith(OWNED_SCOPE)
+  const recordPath = join(dir, OWNED_RECORD)
+  const recorded = existsSync(recordPath) ? new Set(JSON.parse(readFileSync(recordPath, 'utf8')).bundles ?? []) : undefined
+  const ours = name => recorded ? recorded.has(name) : name.startsWith(OWNED_SCOPE)
   const names = plugins.map(p => p.pkg.name)
   manifest.dependencies = Object.fromEntries([
     ...Object.entries(manifest.dependencies ?? {}).filter(([name]) => !ours(name)),
@@ -127,12 +130,12 @@ export function installBundles(plugins, home, harnessBuild) {
   manifest.dsh.profile ??= {}
   manifest.dsh.profile.bundles = [...(manifest.dsh.profile.bundles ?? []).filter(name => !ours(name)), ...names]
   writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
-  const scope = join(dir, 'node_modules', OWNED_SCOPE.slice(0, -1))
-  mkdirSync(scope, { recursive: true })
-  for (const entry of readdirSync(scope)) {
-    if (!names.includes(`${OWNED_SCOPE}${entry}`)) rmSync(join(scope, entry), { recursive: true, force: true })
-  }
+  // Links of packages dsd installed before and not now (any scope, or none).
+  const previous = recorded ? [...recorded] : (existsSync(join(dir, 'node_modules', '@deepsea')) ? readdirSync(join(dir, 'node_modules', '@deepsea')).map(e => `@deepsea/${e}`) : [])
+  for (const name of previous) if (!names.includes(name)) rmSync(join(dir, 'node_modules', name), { recursive: true, force: true })
+  writeFileSync(recordPath, `${JSON.stringify({ note: 'packages dsd installed into this profile (tools/dsd/lib/plugins.mjs)', bundles: names }, null, 2)}\n`)
   for (const plugin of plugins) {
+    mkdirSync(dirname(join(dir, 'node_modules', plugin.pkg.name)), { recursive: true })
     const link = join(dir, 'node_modules', plugin.pkg.name)
     rmSync(link, { recursive: true, force: true })
     symlinkSync(plugin.dir, link)
@@ -140,5 +143,7 @@ export function installBundles(plugins, home, harnessBuild) {
   return { profile: dir, bundles: names }
 }
 
-/** The package scope dsd owns in a profile. */
+/** The record of the packages dsd installed into a profile. */
+const OWNED_RECORD = 'deepsea-bundles.json'
+/** Before that record: the package scope dsd owned. */
 const OWNED_SCOPE = '@deepsea/'
