@@ -131,10 +131,11 @@ export async function adoptCommand(argv) {
     if (dryRun) created = { id: variant, wouldCreate: true, color: oldColor(source, map) }
     else created = await createVariant(variant, { color: oldColor(source, map) })
   }
-  let harness
+  // The source build, for the harness that installs third-party bundles (made now: adopt itself is synchronous).
+  const buildDir = build ?? (dryRun ? undefined : await ensureSourceBuild(resolveSourceCommit(sourceRef)))
   const installBundle = (spec) => {
-    harness ??= readlinkSync(join(build ?? ensureSourceBuild(resolveSourceCommit(sourceRef)), 'harness'))
-    return bundleInstaller(target, harness)(spec)
+    if (buildDir === undefined) return { ok: true }
+    return bundleInstaller(target, readlinkSync(join(buildDir, 'harness')))(spec)
   }
   const report = adopt({
     source, target, dryRun, moveSignIns, map,
