@@ -55,7 +55,8 @@ const generationId = prefix => `${prefix}${Date.now().toString(36)}${(++generati
 export async function generate(ctx, { req, res, body, format, account, provider, catalog, charge, idPrefix, reasoningField, fail }) {
   const messages = body.messages
   const conversation = normalize(format, messages)
-  const plan = respond(conversation)
+  const system = typeof body.system === 'string' ? body.system : Array.isArray(body.system) ? body.system.map(b => b?.text ?? '').join('\n') : ''
+  const plan = respond(conversation, system)
   const refuse = fail ?? ((status, kind, message, headers) => ctx.error(res, status, kind, message, headers))
   if (plan.invalid) return refuse(400, 'invalid_request_error', plan.invalid)
   if (plan.failure) {

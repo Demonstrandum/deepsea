@@ -67,6 +67,28 @@ export function promptOf(conversation) {
 
 // ---- what to say -------------------------------------------------------------------
 
+/** How the harness's session titler frames its request (session-title-llm). */
+export const TITLE_REQUEST = 'Generate the session title from this JSON array of human messages:'
+/** How the harness's compaction asks for a checkpoint (compaction-basic). */
+export const COMPACTION_REQUEST = 'acting as a compaction engine'
+/** The reply to a compaction request, as the scripted model's. */
+export const COMPACTION_SUMMARY = 'Summary: a simulated session.'
+/** The title when the session's scripts set none, as the scripted model's. */
+export const DEFAULT_TITLE = 'scripted session'
+
+/** The `title` command of the first script among the titler's framed messages. */
+function scriptTitle(framed) {
+  let messages
+  try { messages = JSON.parse(framed.slice(TITLE_REQUEST.length)) } catch { return undefined }
+  const texts = JSON.stringify(messages).match(/"(?:[^"\\]|\\.)*"/g)?.map(t => JSON.parse(t)) ?? []
+  for (const text of texts) {
+    if (!isScript(text)) continue
+    const title = parseScript(text).commands.find(c => c.cmd === 'title')
+    if (title) return title.text
+  }
+  return undefined
+}
+
 /** Responses an `error` command with `times` has failed so far: `<script hash>:<line>` → count. */
 const failures = new Map()
 
@@ -75,7 +97,13 @@ const failures = new Map()
  * `{ invalid }` (an unparsable script) or `{ failure }` (an `error` command or
  * a failed `expect`).
  */
-export function respond(conversation) {
+export function respond(conversation, system = '') {
+  // The harness's own side requests answer as the scripted model answers them, never by
+  // replaying the session's script (which would play, and charge, its turn again).
+  const texts = [system, ...conversation.flatMap(m => m.texts)]
+  if (texts.some(t => t.includes(COMPACTION_REQUEST))) return { steps: [{ cmd: 'say', text: COMPACTION_SUMMARY }] }
+  const first = conversation.find(m => m.role === 'user')?.texts[0] ?? ''
+  if (first.startsWith(TITLE_REQUEST)) return { steps: [{ cmd: 'say', text: scriptTitle(first) ?? DEFAULT_TITLE }] }
   const { prompt, position, lastResults } = promptOf(conversation)
   if (!isScript(prompt)) return { steps: position === 0 ? [{ cmd: 'say', text: plainReply(prompt) }] : [{ cmd: 'say', text: FINISHED_REPLY }] }
   const { commands, errors } = parseScript(prompt)

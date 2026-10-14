@@ -86,7 +86,11 @@ scripted model: one response per request, counted by the assistant messages
 since the prompt (the user message that starts the turn; context the harness
 adds after it is ignored). `expect` checks the tool results the request
 carries; `error` answers the HTTP status of its kind (with `Retry-After`), and
-with `times` only for its first attempts.
+with `times` only for its first attempts. The harness's own side requests
+are answered as the scripted model answers them, never by replaying the
+session's script (which would play, and charge, its turn again): the session
+titler's request gets the script's `title` (else "scripted session"), and a
+compaction request gets "Summary: a simulated session."
 
 Anthropic answers in its own error shapes (`{ type: "error", error: { type,
 message }, request_id }`, a `request-id` header): 401 `authentication_error`

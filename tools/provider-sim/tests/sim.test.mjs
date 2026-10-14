@@ -43,6 +43,18 @@ test('the prompt is the message that starts the turn; context after it and tool 
   assert.equal(costMicros({ input: 1, output: 2 }, { input: 1000, output: 500, cacheRead: 0, cacheWrite: 0 }), 2000)
 })
 
+test('the titler and compaction get the scripted model\'s answers, never a replay of the script', async () => {
+  const { respond } = await import('../wire.mjs')
+  const script = '{"cmd":"title","text":"named by script"}\n{"cmd":"say","text":"x"}\n{"cmd":"usage","input":9,"output":9}'
+  const title = respond(normalize('openai', [{ role: 'user', content: `Generate the session title from this JSON array of human messages:\n${JSON.stringify([{ text: script }])}` }]))
+  assert.deepEqual(title.steps, [{ cmd: 'say', text: 'named by script' }])
+  const untitled = respond(normalize('openai', [{ role: 'user', content: 'Generate the session title from this JSON array of human messages:\n[{"text":"hello"}]' }]))
+  assert.deepEqual(untitled.steps, [{ cmd: 'say', text: 'scripted session' }])
+  const compaction = respond(normalize('openai', [{ role: 'user', content: script }, { role: 'system', content: 'You are now acting as a compaction engine for this AI coding assistant.' }]))
+  assert.deepEqual(compaction.steps, [{ cmd: 'say', text: 'Summary: a simulated session.' }])
+  assert.deepEqual(respond(normalize('anthropic', [{ role: 'user', content: script }]), 'You are now acting as a compaction engine').steps, [{ cmd: 'say', text: 'Summary: a simulated session.' }])
+})
+
 test('openrouter: an account per key, scripted streams in both formats, cost lookup, credit, and 402 when it runs out', async () => {
   const { base, sim, close } = await start()
   try {
