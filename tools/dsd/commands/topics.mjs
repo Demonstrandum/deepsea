@@ -1,5 +1,5 @@
 /**
- * dsd topics [list] [--json] | check | integrate [--dry-run]
+ * dsd topics [list] [--json] | check | integrate [--dry-run] [--keep-builds]
  *
  * The topics of both repositories. Harness topics and their order come from
  * the [harness] section of topics.txt. This repository's topics are its
@@ -17,6 +17,7 @@
  * with `dsd run <v> --source integration/base`.
  */
 import { readFileSync, rmSync } from 'node:fs'
+import { collectBuilds } from './manage.mjs'
 import { join } from 'node:path'
 import { harnessRepo, readLock, takeLock } from '../lib/harness.mjs'
 import { checkedOutAt, mergeTrees, moveBranch, planIntegration } from '../lib/integrate.mjs'
@@ -111,7 +112,7 @@ function dirtyWorktrees(topicNames) {
   return dirty
 }
 
-async function integrateOrCheck(sections, deepseaRows, { move, dry }) {
+async function integrateOrCheck(sections, deepseaRows, { move, dry, keepBuilds = false }) {
   const missing = deepseaRows.filter(r => r.missing.length).map(r => `${r.topic} requires ${r.missing.join(', ')}`)
   const report = { missing, dirty: dirtyWorktrees(deepseaRows.map(r => r.topic)), repos: [] }
   for (const integration of integrations(sections, deepseaRows)) {
@@ -135,6 +136,13 @@ async function integrateOrCheck(sections, deepseaRows, { move, dry }) {
       const path = r.repo === 'harness' ? harnessRepo(readLock()) : mainCheckout()
       if (r.changed) { moveBranch(path, r.branch, r.tip); note(`${r.repo}: ${r.branch} -> ${r.tip.slice(0, 10)}${checkedOutAt(path, r.branch) ? ' (checked out; moved with reset --keep)' : ''}`) }
       else note(`${r.repo}: ${r.branch} unchanged at ${r.tip.slice(0, 10)}`)
+    }
+    // The previous integration's builds are unused now (installed variants and the pin keep theirs).
+    if (!keepBuilds) {
+      try {
+        const removed = collectBuilds()
+        if (removed.length) { report.collected = removed; note(`removed ${removed.length} unused build${removed.length === 1 ? '' : 's'} (dsd gc --builds)`) }
+      } catch (error) { note(`collecting unused builds failed: ${error.message}`) }
     }
   }
   for (const r of report.repos) { r.tip = r.tip?.slice(0, 10); r.current = r.current?.slice(0, 10) }
@@ -171,9 +179,9 @@ async function rebaseTopics(sections, which, dry) {
 
 export async function topics(argv) {
   const args = parseArgs(argv)
-  onlyFlags(args, ['json', 'dry-run'])
+  onlyFlags(args, ['json', 'dry-run', 'keep-builds'])
   const sub = args._[0] ?? 'list'
-  const USAGE = 'dsd topics [list] [--json] | check | rebase [harness|deepsea] [--dry-run] | integrate [--dry-run]'
+  const USAGE = 'dsd topics [list] [--json] | check | rebase [harness|deepsea] [--dry-run] | integrate [--dry-run] [--keep-builds]'
   if (!['list', 'check', 'integrate', 'rebase'].includes(sub) || args._.length > (sub === 'rebase' ? 2 : 1)) usage(USAGE)
   const sections = parseTopics(readFileSync(join(mainCheckout(), 'topics.txt'), 'utf8'))
   if (sub === 'rebase') {
@@ -191,7 +199,7 @@ export async function topics(argv) {
     const lock = join(buildsDir(), 'integrate.lock')
     const { held } = takeLock(lock)
     if (held !== undefined) throw new DsdError(`another dsd (pid ${held}) is integrating; try again when it is done`)
-    try { return await integrateOrCheck(sections, rows, { move: true, dry: Boolean(args['dry-run']) }) } finally { rmSync(lock, { recursive: true, force: true }) }
+    try { return await integrateOrCheck(sections, rows, { move: true, dry: Boolean(args['dry-run']), keepBuilds: Boolean(args['keep-builds']) }) } finally { rmSync(lock, { recursive: true, force: true }) }
   }
   const harness = sections.harness ? harnessTopics(sections.harness, harnessRepo(readLock())) : []
   const deepsea = deepseaTopics(sections.deepsea, new Set(harness.map(t => t.topic)))

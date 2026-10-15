@@ -144,7 +144,20 @@ export async function gc(argv) {
     result.throwaways.push({ id: v.id, reason })
     if (!dry) await removeVariant(v.id)
   }
-  if (args.builds) {
+  if (args.builds) result.builds = collectBuilds({ dry })
+  printJson({ ...result, dryRun: dry })
+}
+
+/**
+ * Remove the builds nothing uses (buildUsers): deepsea and harness builds, and app compiles and
+ * extracted app and relay sources not used for an hour. `dsd gc --builds`, and after every
+ * integration (`dsd topics integrate`), which leaves the previous integration's builds unused.
+ * @param {{ dry?: boolean }} options - `dry`: only report.
+ * @returns {string[]} the builds removed (or that would be).
+ */
+export function collectBuilds({ dry = false } = {}) {
+  const result = { builds: [] }
+  {
     // Builds of this repository first: each links a harness build, which stays in use until it goes.
     for (const [kind, repo] of [['deepsea', mainCheckout()], ['harness', harnessRepo()]]) {
       const users = buildUsers(new Set(result.builds))
@@ -173,7 +186,7 @@ export async function gc(argv) {
       if (!dry) rmSync(dir, { recursive: true, force: true })
     }
   }
-  printJson({ ...result, dryRun: dry })
+  return result.builds
 }
 
 /** dsd builds [make [<harness ref>]] */
