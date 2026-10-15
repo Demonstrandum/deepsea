@@ -1,0 +1,105 @@
+# DeepSea
+
+DeepSea is a customized [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)
+(DSH): a fork of the harness kept as topic branches over its releases
+([taliesinb/deepsea-harness](https://github.com/taliesinb/deepsea-harness)),
+plus the plugins, the native macOS app and the developer tools in this
+repository. Nearly every feature is a plugin; the fork changes the harness
+only where no plugin seam exists.
+
+It is a personal setup, developed in the open: macOS first, moving quickly,
+with no stability promises.
+
+## Trying it
+
+You need macOS with the Command Line Tools (`swiftc`), Node 22.19+ or 24+,
+and pnpm 11. The harness lives in its own repository beside this one
+(`harness.lock` names it as `../deepsea-harness`, with the commit pinned):
+
+```sh
+git clone https://github.com/taliesinb/deepsea.git
+git clone https://github.com/taliesinb/deepsea-harness.git
+cd deepsea
+node tools/dsd/bin/dsd.mjs link    # build the pinned harness commit, link ./harness to it
+node tools/dsd/bin/dsd.mjs play    # the app with every plugin and simulated providers
+```
+
+`dsd play` starts a throwaway: its own home, server and app, every model
+provider simulated with test accounts and a scripted model (type `help` as a
+prompt), removed when you quit the app. No keys or accounts are needed.
+Installing a variant you keep, and everything else `dsd` does, is in
+[tools/dsd/README.md](tools/dsd/README.md).
+
+## Branches
+
+| Branch | |
+|---|---|
+| `integration/base` (default) | everything together: `topic/base` with every topic merged |
+| `topic/base` | the baseline: `dsd`, the shared packages, the conventions |
+| `topic/<name>` | one feature or one tight cluster of plugins, based on `topic/base` |
+
+The harness repository is arranged the same way: `topic/base` over the
+upstream release, its topics listed in [topics.txt](topics.txt), and
+`integration/<release>` merging them. Topic and integration branches are
+rebased and rebuilt as the work moves; see [AGENTS.md](AGENTS.md).
+
+## Plugins
+
+| Plugin | |
+|---|---|
+| [ask](plugins/ask) | `/ask`: side questions about a session, answered from its context while it keeps working |
+| [backup-restore](plugins/backup-restore) | `/backup` and `/restore` of the whole home as verified ZIPs |
+| [billing](plugins/billing) | per-session cost, plan quota and request counts in the composer; a `/billing` report |
+| [brand-kit](plugins/brand-kit) | re-brands the web GUI from brand profiles (mark, wordmark, fonts, accent colour) |
+| [browser](plugins/browser) | per-chat Safari Technology Preview and Chrome windows for agents, a page reader, screenshots in the chat |
+| [chat-title](plugins/chat-title) | lets the agent rename a chat whose automatic title is wrong or stale |
+| [dash-docsets](plugins/dash-docsets) | search and read documentation from [Dash](https://kapeli.com/dash) |
+| [enforce-model-preset](plugins/enforce-model-preset) | an agent preset per model |
+| [fs-tools](plugins/fs-tools) | batch filesystem tools: `list_dir`, `read_many`, `edit_many`, `search` |
+| [import-api-keys](plugins/import-api-keys) | `/import-api-keys` from pi, another home, a JSON key map or a `.env` file |
+| [import-sessions](plugins/import-sessions) | `/import-claude`, `/import-pi`, `/import-dsh`: transcripts become resumable sessions |
+| [local-model-supervisor](plugins/local-model-supervisor) | local model servers (AFM, llama.cpp, …) started on demand and stopped when idle |
+| [login](plugins/login) | `/login`, `/logout`, `/logins` for provider sign-ins |
+| [no-global-tools](plugins/no-global-tools) | a tool-less agent preset, for tiny local models |
+| [numbered-switching](plugins/numbered-switching) | ⌘1…⌘5 for the five most recently viewed sessions |
+| [phone-ui](plugins/phone-ui) | a chat-only layout at phone width |
+| [prompt-excision](plugins/prompt-excision) | removes configured paragraphs from the system prompt of chosen routes |
+| [reboot](plugins/reboot) | `/reboot` the server from inside a session |
+| [reload-on-restart](plugins/reload-on-restart) | reloads the page when the server comes back on new code |
+| [remote-workspaces](plugins/remote-workspaces) | other DeepSea servers' workspaces in this sidebar |
+| [scripted-model](plugins/scripted-model) | a deterministic model scripted by the prompt, for tests |
+| [server-log](plugins/server-log) | the server's own log messages in the variant's log |
+| [session-introspect](plugins/session-introspect) | `transcript_*` tools: agents read other agents' transcripts |
+| [session-reference-picker](plugins/session-reference-picker) | `%` in the composer picks a session to reference |
+| [session-title-slug](plugins/session-title-slug) | `some-slug: …` as a first prompt names the session |
+| [settings-shortcut](plugins/settings-shortcut) | ⌘. toggles Settings |
+| [tailscale](plugins/tailscale) | the variant on a tailnet: Serve path, settings, QR codes, port forwarding |
+| [test-driver](plugins/test-driver) | the halves of `dsd drive` |
+| [tools](plugins/tools) | `/tools` lists the agent's tools without a model turn |
+| [transcript-grace-margin](plugins/transcript-grace-margin) | space under the last row of a transcript |
+| [variant-identity](plugins/variant-identity) | tells variants apart: name, colour, window title |
+| [wait](plugins/wait) | a `wait` tool with a live progress bar instead of `sleep` |
+
+Each plugin's README is its documentation. A few more plugins drive licensed
+software and are kept apart from this repository; `dsd` finds them when they
+are present ([LAYOUT.md](LAYOUT.md) §3).
+
+## Layout
+
+| Path | |
+|---|---|
+| [plugins/](plugins) | one installable package per plugin ([plugins/AGENTS.md](plugins/AGENTS.md)) |
+| [packages/](packages) | code shared by plugins and tools |
+| [apps/macos/](apps/macos) | the native app, the server host and the window helper |
+| [apps/relay/](apps/relay) | the relay each installed variant runs |
+| [tools/dsd/](tools/dsd) | `dsd`, the developer CLI: variants, builds, throwaways, topics |
+| [tools/provider-sim/](tools/provider-sim) | simulated model providers for tests |
+| [harness.lock](harness.lock) | the harness repository and the commit pinned |
+
+[LAYOUT.md](LAYOUT.md) defines names, identifiers and disk locations;
+[AGENTS.md](AGENTS.md) is the starting point for coding agents working here.
+
+## License
+
+MIT, see [LICENSE](LICENSE). The harness is DeepSeek Harness, under its own
+license in its repository.
