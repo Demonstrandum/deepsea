@@ -40,6 +40,30 @@ export function harnessRepo(lock = readLock()) {
   return path
 }
 
+/**
+ * Tag every harness commit a commit of this repository pins (`pin/<12 hex>`,
+ * lightweight), so it stays reachable after an integration moves on: every
+ * commit of every branch here, and the working tree's pin, keeps a buildable
+ * harness. `dry` only reports. `missing`: pins the harness repository lacks.
+ */
+export function tagPins({ checkout = REPO, repo = harnessRepo(readLock(undefined, checkout)), dry = false } = {}) {
+  const pins = new Set()
+  try { pins.add(readLock(undefined, checkout).commit) } catch { /* no lock in the working tree */ }
+  for (const commit of git(checkout, ['log', '--branches', '--format=%H', '--', 'harness.lock']).split('\n').filter(Boolean)) {
+    try { pins.add(readLock(commit, checkout).commit) } catch { /* that commit has no readable lock */ }
+  }
+  const tags = new Set(git(repo, ['tag', '--list', 'pin/*']).split('\n').filter(Boolean))
+  const tagged = [], missing = []
+  for (const pin of [...pins].sort()) {
+    const name = `pin/${pin.slice(0, 12)}`
+    if (tags.has(name)) continue
+    try { git(repo, ['cat-file', '-e', `${pin}^{commit}`]) } catch { missing.push(pin.slice(0, 12)); continue }
+    if (!dry) git(repo, ['tag', name, pin])
+    tagged.push(name)
+  }
+  return { tagged, missing }
+}
+
 /** A full commit id for `ref` in the harness repository. */
 export function resolveHarnessCommit(ref, repo = harnessRepo()) {
   return git(repo, ['rev-parse', '--verify', `${ref}^{commit}`])

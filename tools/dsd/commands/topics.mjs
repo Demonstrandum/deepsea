@@ -13,13 +13,15 @@
  * `integration/<upstream>` in the harness repository (its baseline
  * topic/base, then its topics in order) and `integration/base` here
  * (topic/base, then every topic in name order), and
- * moves them only when every merge succeeded. Run a throwaway on the result
+ * moves them only when every merge succeeded, after tagging every harness
+ * commit this repository's history pins (`pin/<12 hex>`), so a pin keeps
+ * building after its integration is replaced. Run a throwaway on the result
  * with `dsd run <v> --source integration/base`.
  */
 import { readFileSync, rmSync } from 'node:fs'
 import { collectBuilds } from './manage.mjs'
 import { join } from 'node:path'
-import { harnessRepo, readLock, takeLock } from '../lib/harness.mjs'
+import { harnessRepo, readLock, tagPins, takeLock } from '../lib/harness.mjs'
 import { checkedOutAt, mergeTrees, moveBranch, planIntegration } from '../lib/integrate.mjs'
 import { restack } from '../lib/restack.mjs'
 import { execFileSync } from 'node:child_process'
@@ -131,6 +133,14 @@ async function integrateOrCheck(sections, deepseaRows, { move, dry, keepBuilds =
   const harness = report.repos.find(r => r.repo === 'harness')
   if (harness.tip && harness.tip !== pinned) report.pin = { pinned: pinned.slice(0, 10), integration: harness.tip.slice(0, 10), note: 'harness.lock pins another commit: pin the integration on topic/base to run it' }
   const failed = missing.length > 0 || report.repos.some(r => r.conflict)
+  // Every harness commit this repository's history pins gets a pin/<12 hex> tag
+  // before the integration it was taken from is replaced.
+  if (move && !failed) {
+    const pins = tagPins({ dry })
+    if (pins.tagged.length || pins.missing.length) report.pins = pins
+    if (pins.tagged.length) note(`harness: ${dry ? 'would tag' : 'tagged'} ${pins.tagged.join(', ')} (push them: git push origin 'refs/tags/pin/*')`)
+    if (pins.missing.length) note(`harness: pinned commits not in the harness repository: ${pins.missing.join(', ')}`)
+  }
   if (move && !failed && !dry) {
     for (const r of report.repos) {
       const path = r.repo === 'harness' ? harnessRepo(readLock()) : mainCheckout()

@@ -204,6 +204,33 @@ test('integration: merges in order, reuses unchanged merges, stops at a conflict
   } finally { rmSync(repo, { recursive: true, force: true }) }
 })
 
+test('pins: every harness commit a branch here pins is tagged once; a pin the harness lacks is reported', async () => {
+  const { execFileSync } = await import('node:child_process')
+  const { tagPins } = await import('../lib/harness.mjs')
+  const dir = mkdtempSync(join(tmpdir(), 'dsd-pins-'))
+  const env = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@example.com', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@example.com' }
+  const g = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8', env }).trim()
+  const harness = join(dir, 'harness'), checkout = join(dir, 'checkout')
+  try {
+    mkdirSync(harness); mkdirSync(checkout)
+    g(harness, 'init', '-q', '-b', 'main')
+    const commits = ['one', 'two', 'three'].map(n => { writeFileSync(join(harness, 'f'), n); g(harness, 'add', '.'); g(harness, 'commit', '-qm', n); return g(harness, 'rev-parse', 'HEAD') })
+    g(checkout, 'init', '-q', '-b', 'topic/base')
+    const pin = commit => { writeFileSync(join(checkout, 'harness.lock'), `url ../harness\ncommit ${commit}\n`); g(checkout, 'add', '.'); g(checkout, 'commit', '-qm', commit.slice(0, 7)) }
+    pin(commits[0]); pin(commits[1])
+    g(checkout, 'checkout', '-qb', 'topic/x'); pin('f'.repeat(40))
+    g(checkout, 'checkout', '-q', 'topic/base')
+    // The branch the pins came from moves on: the first two are no longer on it.
+    g(harness, 'reset', '-q', '--hard', commits[2]); g(harness, 'checkout', '-q', '--orphan', 'other'); g(harness, 'branch', '-qD', 'main')
+    const dry = tagPins({ checkout, repo: harness, dry: true })
+    assert.deepEqual(dry, { tagged: [`pin/${commits[0].slice(0, 12)}`, `pin/${commits[1].slice(0, 12)}`].sort(), missing: ['f'.repeat(12)] })
+    assert.equal(g(harness, 'tag', '--list', 'pin/*'), '')
+    assert.deepEqual(tagPins({ checkout, repo: harness }).tagged, dry.tagged)
+    assert.equal(g(harness, 'rev-parse', `pin/${commits[0].slice(0, 12)}`), commits[0])
+    assert.deepEqual(tagPins({ checkout, repo: harness }), { tagged: [], missing: ['f'.repeat(12)] })
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
 test('install: the relay plist, Serve path choice (stepping aside), Dock entries', async () => {
   const { chooseServePath, dockHas, dockTile, relayPlist } = await import('../lib/install.mjs')
   const plist = relayPlist({ label: 'io.github.taliesinb.deepsea.lab.relay', programArguments: ['/a/host', '/a/node', 'x&y'], launchdLog: '/l/launchd.log' })
