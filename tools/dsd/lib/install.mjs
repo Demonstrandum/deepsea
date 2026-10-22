@@ -181,10 +181,23 @@ export function removeApp(id) {
   return target
 }
 
-/** `<support>/deepsea-relay`: a link to node, so the relay shows by that name. Node is found on the PATH (a stable link, not a versioned path). */
+/** Whether a node binary is one the harness runs on (^22.19.0 || >=24, its `engines`). */
+export function nodeSupported(node) {
+  const result = spawnSync(node, ['-p', 'process.versions.node'], { encoding: 'utf8' })
+  if (result.status !== 0) return false
+  const [major, minor] = result.stdout.trim().split('.').map(Number)
+  return major >= 24 || (major === 22 && minor >= 19)
+}
+
+/**
+ * `<support>/deepsea-relay`: a link to node, so the relay shows by that name. Node is found on the
+ * PATH (a stable link, not a versioned path) unless that one is too old to run the harness (a
+ * login shell's PATH can hold an old /usr/local/bin/node): then the node running dsd.
+ */
 export function linkRelayNode(supportDir) {
   const which = spawnSync('/bin/sh', ['-lc', 'command -v node'], { encoding: 'utf8' }).stdout.trim()
-  const node = which || process.execPath
+  const node = which && nodeSupported(which) ? which : process.execPath
+  if (which && node !== which) note(`${which} is too old for the harness; the relay and server use ${node}`)
   const link = join(supportDir, 'deepsea-relay')
   mkdirSync(supportDir, { recursive: true })
   try { if (lstatSync(link).isSymbolicLink() && readlinkSync(link) === node) return { link, node } } catch { /* none */ }

@@ -231,6 +231,21 @@ test('pins: every harness commit a branch here pins is tagged once; a pin the ha
   } finally { rmSync(dir, { recursive: true, force: true }) }
 })
 
+test('install: the relay and server only run on a node the harness supports', async () => {
+  const { nodeSupported } = await import('../lib/install.mjs')
+  const dir = mkdtempSync(join(tmpdir(), 'dsd-node-'))
+  try {
+    const fake = (name, version) => { const p = join(dir, name); writeFileSync(p, `#!/bin/sh\necho ${version}\n`, { mode: 0o755 }); return p }
+    assert.equal(nodeSupported(process.execPath), true)
+    assert.equal(nodeSupported(fake('old', '16.17.0')), false)
+    assert.equal(nodeSupported(fake('early22', '22.18.1')), false)
+    assert.equal(nodeSupported(fake('late22', '22.19.0')), true)
+    assert.equal(nodeSupported(fake('odd23', '23.11.0')), false)
+    assert.equal(nodeSupported(fake('lts24', '24.1.0')), true)
+    assert.equal(nodeSupported(join(dir, 'missing')), false)
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
 test('install: the relay plist, Serve path choice (stepping aside), Dock entries', async () => {
   const { chooseServePath, dockHas, dockTile, relayPlist } = await import('../lib/install.mjs')
   const plist = relayPlist({ label: 'io.github.taliesinb.deepsea.lab.relay', programArguments: ['/a/host', '/a/node', 'x&y'], launchdLog: '/l/launchd.log' })
