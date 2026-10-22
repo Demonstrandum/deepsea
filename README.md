@@ -24,6 +24,16 @@ node tools/dsd/bin/dsd.mjs link    # build the pinned harness commit, link ./har
 node tools/dsd/bin/dsd.mjs play    # the app with every plugin and simulated providers
 ```
 
+On a fresh Mac, [tools/bootstrap.sh](tools/bootstrap.sh) does all of this
+and more: the Command Line Tools, Node and pnpm (no administrator access
+needed), both clones in `~/ds`, the harness build and an installed DeepSea
+in the Dock. It is safe to run again, and `--help` lists its options:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/taliesinb/deepsea/topic/base/tools/bootstrap.sh -o bootstrap.sh
+bash bootstrap.sh
+```
+
 `dsd play` starts a throwaway: its own home, server and app, every model
 provider simulated with test accounts and a scripted model (type `help` as a
 prompt), removed when you quit the app. No keys or accounts are needed.
