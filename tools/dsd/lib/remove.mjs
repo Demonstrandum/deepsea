@@ -1,13 +1,14 @@
 /**
  * Stopping a throwaway and removing it: its supervisor, app and server, then
  * its home, its log directory, its app bundle (unregistered from
- * LaunchServices) and anything macOS keeps under its variant name.
+ * LaunchServices) and anything macOS (or, on Linux, the XDG directories)
+ * keeps under its variant name.
  */
 import { execFileSync } from 'node:child_process'
 import { existsSync, readdirSync, realpathSync, rmSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { deepseaRoot, homeOf, logDirOf, variantName } from './paths.mjs'
+import { deepseaRoot, homeOf, logDirOf, logRoot, variantName } from './paths.mjs'
 import { appDirOf, quitApp, removeAppBundle } from './app.mjs'
 import { alive, listenerPids, runningAs, stopGroup } from './processes.mjs'
 import { DsdError } from './util.mjs'
@@ -66,6 +67,21 @@ export function macosLeftovers(name) {
 }
 
 /**
+ * Linux directories kept for a variant name and its components: its support directory (XDG data)
+ * and its log directory (XDG state), as `<name>` or `<name>.<component>`.
+ */
+export function linuxLeftovers(name, platform = process.platform, env = process.env) {
+  if (platform !== 'linux') return []
+  const matches = entry => entry === name || entry.startsWith(`${name}.`)
+  const found = []
+  for (const dir of [env.XDG_DATA_HOME || join(homedir(), '.local', 'share'), logRoot(env, platform)]) {
+    if (!existsSync(dir)) continue
+    for (const entry of readdirSync(dir)) if (matches(entry)) found.push(join(dir, entry))
+  }
+  return found
+}
+
+/**
  * Stop a throwaway and, unless `keep`, delete everything it owns.
  * @returns {Promise<{ id: string, stopped: boolean, removed: string[] }>}
  */
@@ -86,7 +102,7 @@ export async function removeVariant(id, { keep = false } = {}) {
   if (!keep) {
     // Preferences go through cfprefsd, which caches them: delete the domain, then any file left.
     if (process.platform === 'darwin') try { execFileSync('/usr/bin/defaults', ['delete', variantName(id)], { stdio: 'ignore' }) } catch { /* no such domain */ }
-    for (const path of [homeOf(id), logDirOf(id), join(deepseaRoot(), '_backups', id), ...macosLeftovers(variantName(id))]) {
+    for (const path of new Set([homeOf(id), logDirOf(id), join(deepseaRoot(), '_backups', id), ...macosLeftovers(variantName(id)), ...linuxLeftovers(variantName(id))])) {
       if (!existsSync(path)) continue
       // One path that cannot go (a protected file) must not keep the rest.
       try { rmSync(path, { recursive: true, force: true }); removed.push(path) } catch (error) { failed.push(`${path}: ${error.code ?? error.message}`) }

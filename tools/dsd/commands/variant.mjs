@@ -1,29 +1,32 @@
 /**
  * Named variants (LAYOUT.md §1, §6, §7):
  *
- *   dsd new <v> [--source <ref>] [--color <hex>] [--plugins <names|all>] [--no-serve]
+ *   dsd new <v> [--source <ref>] [--color <hex>] [--plugins <names|all>] [--no-serve | --serve-path <path>]
  *   dsd build <v> [--install [--dock]] [--self]
  *   dsd remove <v> [--home] [--self]
  *
  * `new` writes the home, its variant.yml (port block, Serve path, source) and
  * its links. `build` makes the immutable build of its source commit, writes
- * its plugins into its profile as bundles, and builds its app; with `--install` it installs the
+ * its plugins into its profile as bundles, and on macOS builds its app; with `--install` it installs the
  * app (~/Applications), the server host and relay link (Application
- * Support) and the relay LaunchAgent, and with `--dock` a Dock tile.
+ * Support) and the relay LaunchAgent, and with `--dock` a Dock tile. On
+ * Linux there is no app: `--install` installs the relay link (the XDG data
+ * directory) and the relay as a systemd user unit.
  * `remove` uninstalls all of that and, with `--home`, deletes the home.
  * `dsd run <v>` / `dsd stop <v>` start and stop an installed variant.
  */
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readlinkSync, rmSync, symlinkSync, unlinkSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, symlinkSync, unlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-  OFFSETS, addDockTile, appPathOf, bootout, chooseServePath, choosePortBlock, installApp, installLaunchAgent, jobStatus, kickstart,
-  launchAgentOf, linkRelayNode, listening, relayLabelOf, removeApp, removeDockTile, removeLaunchAgent, removeServePath, serverHostNameOf, supportDirOf, tailnetFacts,
+  OFFSETS, addDockTile, appPathOf, chooseServePath, choosePortBlock, installApp,
+  linkRelayNode, listening, relayService, removeApp, removeDockTile, removeServePath, serverHostNameOf, supportDirOf, tailnetFacts,
 } from '../lib/install.mjs'
 import { buildsDir, homeOf, logDirOf, variantName } from '../lib/paths.mjs'
 import { installBundles, selectPlugins } from '../lib/plugins.mjs'
-import { macosLeftovers, refuseOwnHome } from '../lib/remove.mjs'
+import { linuxLeftovers, macosLeftovers, refuseOwnHome } from '../lib/remove.mjs'
+import { lingering } from '../lib/systemd.mjs'
 import { ensureSourceBuild, resolveSourceCommit } from '../lib/source.mjs'
 import { DsdError, isoLocal, note, onlyFlags, parseArgs, printJson, sleep, usage } from '../lib/util.mjs'
 import { checkNamedId, displayName, listVariants, readVariant, writeVariant } from '../lib/variants.mjs'
@@ -38,6 +41,8 @@ function namedConfig(id) {
   return config
 }
 
+const DARWIN = process.platform === 'darwin'
+
 const ports = config => ({ dsh: Number(config.ports) + OFFSETS.dsh, relay: Number(config.ports) + OFFSETS.relay, proxy: Number(config.ports) + OFFSETS.proxy })
 
 function relink(link, target) {
@@ -47,24 +52,31 @@ function relink(link, target) {
 
 /** dsd new <v> */
 export async function newVariant(argv) {
-  const args = parseArgs(argv, ['source', 'color', 'plugins'])
-  onlyFlags(args, ['source', 'color', 'plugins', 'no-serve'])
+  const args = parseArgs(argv, ['source', 'color', 'plugins', 'serve-path'])
+  onlyFlags(args, ['source', 'color', 'plugins', 'no-serve', 'serve-path'])
   const id = args._[0]
-  if (id === undefined || args._.length > 1) usage('dsd new <v> [--source <ref>] [--color <hex>] [--plugins <names|all>] [--no-serve]')
-  printJson(await createVariant(id, { source: args.source, color: args.color, plugins: args.plugins, noServe: args['no-serve'] }))
+  if (id === undefined || args._.length > 1) usage('dsd new <v> [--source <ref>] [--color <hex>] [--plugins <names|all>] [--no-serve | --serve-path <path>]')
+  if (args['no-serve'] && args['serve-path']) usage('--no-serve and --serve-path are alternatives')
+  printJson(await createVariant(id, { source: args.source, color: args.color, plugins: args.plugins, noServe: args['no-serve'], servePath: args['serve-path'] }))
 }
 
-/** Create a named variant (dsd new; dsd adopt for a variant that does not exist yet). */
-export async function createVariant(id, { source = 'integration/base', color, plugins = 'all', noServe = false } = {}) {
+/**
+ * Create a named variant (dsd new; dsd adopt for a variant that does not exist yet). `servePath`
+ * names the Serve path instead of choosing one (on a machine shared by several accounts, a path
+ * of the person's own, such as `/deepsea-<user>`); one that another target holds is refused.
+ */
+export async function createVariant(id, { source = 'integration/base', color, plugins = 'all', noServe = false, servePath: wanted } = {}) {
   checkNamedId(id)
   if (existsSync(homeOf(id))) throw new DsdError(`${homeOf(id)} exists already`)
   if (color !== undefined && !/^#[0-9a-fA-F]{6}$/.test(color)) usage('--color takes #rrggbb')
+  if (wanted !== undefined && !/^\/[a-z0-9]+(?:-[a-z0-9]+)*$/.test(wanted)) usage('--serve-path takes a path such as /deepsea-lab (lowercase letters, digits and single dashes)')
   resolveSourceCommit(source)
   const recorded = new Set(listVariants().filter(v => !v.throwaway && v.config?.ports).map(v => Number(v.config.ports)))
   const block = await choosePortBlock(recorded)
   const facts = noServe ? undefined : tailnetFacts()
   const serve = Boolean(facts?.dnsName)
-  const servePath = serve ? chooseServePath(id, block, facts) : undefined
+  if (wanted !== undefined && !serve) throw new DsdError('--serve-path: Tailscale is not available here')
+  const servePath = !serve ? undefined : wanted === undefined ? chooseServePath(id, block, facts) : chooseServePath(id, block, facts, undefined, wanted)
   const home = homeOf(id)
   mkdirSync(home, { recursive: true, mode: 0o700 })
   writeVariant(id, {
@@ -101,6 +113,7 @@ export async function build(argv) {
   if (id === undefined || args._.length > 1) usage('dsd build <v> [--install [--dock]] [--self]')
   if (args.throwaway) usage('throwaway apps are built by dsd run --throwaway-app')
   if (args.dock && !args.install) usage('--dock goes with --install')
+  if (args.dock && !DARWIN) usage('--dock is for macOS')
   const config = namedConfig(id)
   if (args.install && !args.self) refuseOwnHome(id)
   const home = homeOf(id)
@@ -111,66 +124,70 @@ export async function build(argv) {
   const port = ports(config)
   const facts = config.serve ? tailnetFacts() : undefined
   const url = config.serve && facts?.dnsName ? `https://${facts.dnsName}${config.servePath}/` : `http://127.0.0.1:${port.relay}/`
-  const out = mkdtempSync(join(tmpdir(), `deepsea-build-${id}-`))
-  const version = (() => { try { return JSON.parse(execFileSync('/bin/cat', [join(harnessBuild, 'package.json')], { encoding: 'utf8' })).version } catch { return '0.0.0' } })()
-  const builtApp = JSON.parse(execFileSync(process.execPath, [join(dir, 'apps', 'macos', 'build.mjs'),
+  // The app (apps/macos) exists only for macOS; on Linux a variant is its relay and server.
+  const out = DARWIN ? mkdtempSync(join(tmpdir(), `deepsea-build-${id}-`)) : undefined
+  const version = (() => { try { return JSON.parse(readFileSync(join(harnessBuild, 'package.json'), 'utf8')).version } catch { return '0.0.0' } })()
+  const builtApp = DARWIN ? JSON.parse(execFileSync(process.execPath, [join(dir, 'apps', 'macos', 'build.mjs'),
     '--out', out, '--name', displayName(id), '--bundle-id', variantName(id), '--glyph', join(harnessBuild, 'apps', 'web', 'public', 'favicon.svg'),
     '--glyph-color', config.color ?? '#000000', '--url', url, '--fallback-url', `http://127.0.0.1:${port.relay}/`,
-    '--token-file', join(home, 'relay', 'state.json'), '--version', version, '--build', commit.slice(0, 10), '--cache', buildsDir()], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }))
-  const result = { id, source: `${config.source} (${commit.slice(0, 10)})`, build: dir, plugins: plugins.map(p => p.name), app: builtApp.app, url }
+    '--token-file', join(home, 'relay', 'state.json'), '--version', version, '--build', commit.slice(0, 10), '--cache', buildsDir()], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })) : undefined
+  const result = { id, source: `${config.source} (${commit.slice(0, 10)})`, build: dir, plugins: plugins.map(p => p.name), ...(builtApp ? { app: builtApp.app } : {}), url }
   if (!args.install) { printJson(result); return }
 
   // Only an install touches the home: the running server reads its profile's bundles.
   installBundles(plugins, home, harnessBuild)
   const supportDir = supportDirOf(id)
-  const app = installApp(id, builtApp.app)
-  rmSync(out, { recursive: true, force: true })
-  const host = JSON.parse(execFileSync(process.execPath, [join(dir, 'apps', 'macos', 'build.mjs'), 'server-host',
+  const app = builtApp ? installApp(id, builtApp.app) : undefined
+  if (out) rmSync(out, { recursive: true, force: true })
+  // The server host (macOS only) makes the relay and everything below it ask for privacy grants as the variant.
+  const host = DARWIN ? JSON.parse(execFileSync(process.execPath, [join(dir, 'apps', 'macos', 'build.mjs'), 'server-host',
     '--dir', supportDir, '--name', serverHostNameOf(id), '--bundle-id', `${variantName(id)}.server`,
-    '--icon', join(app, 'Contents', 'Resources', 'AppIcon.icns'), '--cache', buildsDir()], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }))
-  const { link, node } = linkRelayNode(supportDir)
+    '--icon', join(app, 'Contents', 'Resources', 'AppIcon.icns'), '--cache', buildsDir()], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })) : undefined
+  const { link, node } = linkRelayNode(supportDir, harnessBuild)
   mkdirSync(join(logDirOf(id), 'relay'), { recursive: true, mode: 0o700 })
   const proxy = plugins.some(p => p.name === 'tailscale')
-  const programArguments = [host.executable, link, join(dir, 'apps', 'relay', 'relay.mjs'),
+  const programArguments = [...(host ? [host.executable] : []), link, join(dir, 'apps', 'relay', 'relay.mjs'),
     '--variant', id, '--home', home, '--listen', `127.0.0.1:${port.relay}`, '--dsh', `127.0.0.1:${port.dsh}`,
     ...(proxy ? ['--proxy', `127.0.0.1:${port.proxy}`] : []), '--log-dir', logDirOf(id), '--cwd', harnessBuild,
     '--', node, '--import', 'tsx/esm', join(harnessBuild, 'apps', 'cli', 'src', 'bin.ts'), '--profile', 'web',
     '--no-open', '--port', String(port.dsh)]
-  const agent = await installLaunchAgent(id, programArguments, join(logDirOf(id), 'relay', 'launchd.log'))
+  const job = await relayService.install(id, programArguments)
   relink(join(home, 'source'), dir)
   const dock = args.dock ? addDockTile(app) : undefined
   writeVariant(id, { ...config, build: commit.slice(0, 10), installed: isoLocal() })
-  printJson({ ...result, app, serverHost: host.bundle, serverHostChanged: host.changed, relay: `http://127.0.0.1:${port.relay}/`, launchAgent: agent.plist, label: agent.label, ...(dock !== undefined ? { dock } : {}) })
+  if (!DARWIN && lingering() === false) note('this account does not linger (loginctl enable-linger): the relay stops at the last logout and starts again at the next login')
+  printJson({
+    ...result, ...(app ? { app } : {}), ...(host ? { serverHost: host.bundle, serverHostChanged: host.changed } : {}),
+    relay: `http://127.0.0.1:${port.relay}/`, [DARWIN ? 'launchAgent' : 'unit']: job.file, label: job.label, ...(dock !== undefined ? { dock } : {}),
+  })
 }
 
 /** The state of a named variant: installed, relay and server listening. */
 export async function namedStatus(id, config) {
   const port = ports(config)
   const [relay, server] = await Promise.all([listening(port.relay), listening(port.dsh)])
-  const installed = existsSync(launchAgentOf(id))
-  return { installed, job: jobStatus(relayLabelOf(id)).loaded, relay, server, port: port.dsh }
+  const installed = relayService.installed(id)
+  return { installed, job: installed && relayService.status(id).loaded, relay, server, port: port.dsh }
 }
 
-/** dsd run <v> for a named variant: load and start its relay, then open its app. */
+/** dsd run <v> for a named variant: load and start its relay, then open its app (macOS). */
 export async function runNamed(id, args) {
   const config = namedConfig(id)
-  if (!existsSync(launchAgentOf(id))) throw new DsdError(`${id} is not installed (dsd build ${id} --install)`)
-  if (!jobStatus(relayLabelOf(id)).loaded) {
-    execFileSync('/bin/launchctl', ['bootstrap', `gui/${process.getuid()}`, launchAgentOf(id)], { stdio: 'ignore' })
-  }
-  kickstart(relayLabelOf(id))
+  if (!relayService.installed(id)) throw new DsdError(`${id} is not installed (dsd build ${id} --install)`)
+  await relayService.start(id)
   const port = ports(config)
   for (let i = 0; i < 50 && !(await listening(port.relay)); i++) await sleep(200)
-  if (!args['no-app']) execFileSync('/usr/bin/open', [appPathOf(id)])
-  printJson({ id, ...(await namedStatus(id, config)), app: args['no-app'] ? undefined : appPathOf(id) })
+  const openApp = DARWIN && !args['no-app']
+  if (openApp) execFileSync('/usr/bin/open', [appPathOf(id)])
+  printJson({ id, ...(await namedStatus(id, config)), relayUrl: `http://127.0.0.1:${port.relay}/`, app: openApp ? appPathOf(id) : undefined })
 }
 
-/** dsd stop <v> for a named variant: unload its relay job, which stops the relay and its server. */
+/** dsd stop <v> for a named variant: stop its relay job, which stops the relay and its server. */
 export async function stopNamed(id, args) {
   namedConfig(id)
   if (!args.self) refuseOwnHome(id)
-  const stopped = await bootout(relayLabelOf(id))
-  printJson({ id, stopped, note: 'the LaunchAgent stays installed: it starts again at login or with dsd run' })
+  const stopped = await relayService.stop(id)
+  printJson({ id, stopped, note: `the ${DARWIN ? 'LaunchAgent' : 'systemd unit'} stays installed: it starts again at login or with dsd run` })
 }
 
 /** dsd remove <v> [--home] */
@@ -182,14 +199,20 @@ export async function remove(argv) {
   const config = namedConfig(id)
   if (!args.self) refuseOwnHome(id)
   const removed = []
-  const agent = await removeLaunchAgent(id)
-  if (agent.plist) removed.push(agent.plist)
-  if (config.serve && config.servePath && removeServePath(config.servePath, ports(config).relay)) removed.push(`Serve path ${config.servePath}`)
-  if (removeDockTile(appPathOf(id))) removed.push('Dock tile')
-  const app = removeApp(id)
-  if (app) removed.push(app)
-  try { execFileSync('/usr/bin/defaults', ['delete', variantName(id)], { stdio: 'ignore' }) } catch { /* no preferences */ }
-  for (const path of macosLeftovers(variantName(id))) { rmSync(path, { recursive: true, force: true }); removed.push(path) }
+  const job = await relayService.remove(id)
+  if (job.file) removed.push(job.file)
+  if (config.serve && config.servePath) {
+    try { if (removeServePath(config.servePath, ports(config).relay)) removed.push(`Serve path ${config.servePath}`) } catch (error) {
+      note(`Serve path ${config.servePath} stays: ${String(error.stderr || error.message).trim().split('\n')[0]}`)
+    }
+  }
+  if (DARWIN) {
+    if (removeDockTile(appPathOf(id))) removed.push('Dock tile')
+    const app = removeApp(id)
+    if (app) removed.push(app)
+    try { execFileSync('/usr/bin/defaults', ['delete', variantName(id)], { stdio: 'ignore' }) } catch { /* no preferences */ }
+  }
+  for (const path of [...macosLeftovers(variantName(id)), ...linuxLeftovers(variantName(id))]) { rmSync(path, { recursive: true, force: true }); removed.push(path) }
   if (args.home) { rmSync(homeOf(id), { recursive: true, force: true }); removed.push(homeOf(id)) }
   printJson({ id, removed, home: args.home ? 'removed' : `kept: ${homeOf(id)}` })
 }

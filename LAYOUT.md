@@ -17,6 +17,7 @@ One string names a variant everywhere: its **variant name**
 | Variant name = app bundle id | `io.github.taliesinb.deepsea.release` | `io.github.taliesinb.deepsea.<v>` |
 | Server host bundle id | `<variant name>.server` | same |
 | Relay LaunchAgent label | `<variant name>.relay` | same |
+| Relay systemd user unit (Linux) | `<variant name>.relay.service` | same |
 | Logs | `~/Library/Logs/<variant name>/` | same |
 | Application Support | `~/Library/Application Support/<variant name>/` | same |
 | DSH home (`DSH_HOME`) | `~/.deepsea/release/` | `~/.deepsea/<v>/` |
@@ -185,7 +186,9 @@ outside the home depends on them):
   land beside the app, relay and server logs. On Linux the link points to
   `${XDG_STATE_HOME:-~/.local/state}/<variant name>/`.
 - `support`: the variant's Application Support directory (§6): server host
-  app and relay link. Absent for throwaways, which install nothing there.
+  app and relay link. On Linux `${XDG_DATA_HOME:-~/.local/share}/<variant
+  name>/`, holding the relay link. Absent for throwaways, which install
+  nothing there.
 - `source`: which code the variant runs, so `ls -l` answers that question.
 
 The backup plugin records links as links, so logs (which hold the launch
@@ -209,7 +212,7 @@ include itself.
   app/latest.log -> …
   app/snapshots/
   relay/<ts>-<pid>.log
-  relay/launchd.log                           plist StandardOut/Err only
+  relay/launchd.log                           plist StandardOut/Err only (Linux: relay/systemd.log, the unit's)
   relay/console.log                           a throwaway relay's stdout/err (dsd run --throwaway)
   server/<ts>-<pid>.log                       one per `dsh web` start; 0700 dir, 0600 files (launch token)
   plugins/<name>/<ts>-<pid>.jsonl             one trace per server process
@@ -288,6 +291,12 @@ launchd ── <variant name>.relay (RunAtLoad, KeepAlive)
                     person's PATH), started on the first connection, restarted by the relay
 ```
 
+- **Linux** has no app, server host or Application Support: `dsd build <v>
+  --install` writes `${XDG_CONFIG_HOME:-~/.config}/systemd/user/<variant
+  name>.relay.service` (enabled for `default.target`, `Restart=always`)
+  running `deepsea-relay` (the node link in the support directory, §4)
+  directly; the user manager stands where launchd does, from login to the
+  last logout, or always when the account lingers.
 - The LaunchAgent and the server host name the build path itself, never
   `<home>/source` (nothing outside the home depends on the home's links).
 - The relay (`apps/relay`) is part of every installed variant, with or

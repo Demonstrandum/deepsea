@@ -14,7 +14,7 @@ import { join, resolve } from 'node:path'
 import { openRunLog } from './logs.mjs'
 import { buildsDir, extrasDir, machineLogDir, mainCheckout, REPO, ROOT_NAME } from './paths.mjs'
 import { alive } from './processes.mjs'
-import { DsdError, git, isoLocal, note, sleep, usage } from './util.mjs'
+import { DsdError, git, isoLocal, note, onPath, sleep, usage } from './util.mjs'
 
 /** Parse harness.lock text: `key value` lines. */
 export function parseLock(text) {
@@ -167,6 +167,8 @@ export async function ensureBuilt(kind, commit, make) {
  */
 export function ensureBuild(commit, repo = harnessRepo()) {
   return ensureBuilt('harness', commit, async (dir, log) => {
+    // Its build compiles native/system with `cc` (on macOS the Command Line Tools have it).
+    if (process.platform !== 'win32' && !onPath('cc')) throw new DsdError('the harness build compiles native code with cc, and there is none on PATH: install a C compiler (gcc or clang)')
     if (!existsSync(dir)) {
       note(`checking out harness ${commit.slice(0, 10)}`)
       git(repo, ['worktree', 'prune'])

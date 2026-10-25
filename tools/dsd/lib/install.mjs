@@ -1,22 +1,27 @@
 /**
- * Installing a named variant on macOS (LAYOUT.md §6): its app in
+ * Installing a named variant (LAYOUT.md §6). On macOS: its app in
  * ~/Applications, its server host and relay link in Application Support, its
- * relay LaunchAgent, an optional Dock tile, and the choice of its port block
- * and Tailscale Serve path. Pure parts (plist text, Dock entries, choices)
- * are exported for tests; everything that acts goes through `launchctl`,
- * `lsregister`, `defaults` and the file system here.
+ * relay LaunchAgent, an optional Dock tile. On Linux: its relay link in
+ * `${XDG_DATA_HOME:-~/.local/share}/<variant name>/` and its relay as a
+ * systemd user unit (lib/systemd.mjs); no app. Both: the choice of its port
+ * block and Tailscale Serve path. `relayService` is the relay's job on either.
+ * Pure parts (plist text, Dock entries, choices) are exported for tests;
+ * everything that acts goes through `launchctl`, `lsregister`, `defaults`,
+ * `systemctl` and the file system here.
  */
 import { execFileSync, spawnSync } from 'node:child_process'
 import { cpSync, existsSync, lstatSync, mkdirSync, readlinkSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { connect } from 'node:net'
 import { homedir, userInfo } from 'node:os'
 import { join } from 'node:path'
-import { variantName } from './paths.mjs'
-import { DsdError, note, sleep } from './util.mjs'
+import { logDirOf, variantName } from './paths.mjs'
+import { installUnit, relayUnit, removeUnit, startUnit, stopUnit, unitDir, unitStatus } from './systemd.mjs'
+import { DsdError, note, onPath, sleep } from './util.mjs'
 import { displayName } from './variants.mjs'
 
 const LSREGISTER = '/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister'
-const TAILSCALE = ['/Applications/Tailscale.app/Contents/MacOS/Tailscale', '/usr/local/bin/tailscale', '/opt/homebrew/bin/tailscale']
+const TAILSCALE = ['/Applications/Tailscale.app/Contents/MacOS/Tailscale', '/usr/local/bin/tailscale', '/opt/homebrew/bin/tailscale', '/run/current-system/sw/bin/tailscale', '/usr/bin/tailscale', '/usr/sbin/tailscale']
+const DARWIN = process.platform === 'darwin'
 
 export const PORT_BASE = 3200
 export const PORT_BLOCK = 10
@@ -25,7 +30,10 @@ export const OFFSETS = { dsh: 0, relay: 3, proxy: 4 }
 
 export const applicationsDir = () => join(homedir(), 'Applications')
 export const appPathOf = id => join(applicationsDir(), `${displayName(id)}.app`)
-export const supportDirOf = id => join(homedir(), 'Library', 'Application Support', variantName(id))
+/** The variant's support directory: Application Support on macOS, the XDG data directory elsewhere. */
+export const supportDirOf = (id, platform = process.platform, env = process.env) => platform === 'darwin'
+  ? join(homedir(), 'Library', 'Application Support', variantName(id))
+  : join(env.XDG_DATA_HOME || join(homedir(), '.local', 'share'), variantName(id))
 export const relayLabelOf = id => `${variantName(id)}.relay`
 export const launchAgentOf = id => join(homedir(), 'Library', 'LaunchAgents', `${relayLabelOf(id)}.plist`)
 export const serverHostNameOf = id => `${displayName(id)} Server`
@@ -118,8 +126,7 @@ export async function choosePortBlock(recorded) {
 /** The tailscale CLI, or undefined. */
 export function tailscaleCli() {
   for (const candidate of TAILSCALE) if (existsSync(candidate)) return candidate
-  const which = spawnSync('/usr/bin/which', ['tailscale'], { encoding: 'utf8' })
-  return which.status === 0 ? which.stdout.trim() : undefined
+  return onPath('tailscale')
 }
 
 /** This node's MagicDNS name and the Serve mappings (path → target), read-only; undefined without Tailscale. */
@@ -143,12 +150,17 @@ export function tailnetFacts() {
 
 /**
  * The Serve path for a variant (LAYOUT.md §7): `/deepsea` for release, `/deepsea-<v>` otherwise; when another
- * target (another account's variant) already holds it, the same with `-<account>` appended.
+ * target (another account's variant) already holds it, the same with `-<account>` appended. A
+ * `wanted` path is taken as it is, unless another target holds it.
  */
-export function chooseServePath(id, block, facts, account = userInfo().username) {
+export function chooseServePath(id, block, facts, account = userInfo().username, wanted = undefined) {
   const base = id === 'release' ? '/deepsea' : `/deepsea-${id}`
   const ours = target => new RegExp(`^https?://(127\\.0\\.0\\.1|localhost):${block + OFFSETS.relay}/?$`).test(String(target))
   const taken = path => facts?.mappings?.[path] !== undefined && !ours(facts.mappings[path])
+  if (wanted !== undefined) {
+    if (taken(wanted)) throw new DsdError(`the Serve path ${wanted} points at ${facts.mappings[wanted]}, not this variant's relay`)
+    return wanted
+  }
   if (!taken(base)) return base
   const own = `${base}-${account.toLowerCase().replace(/[^a-z0-9-]/g, '-')}`
   if (taken(own)) throw new DsdError(`the Serve paths ${base} and ${own} are both taken by others`)
@@ -190,14 +202,36 @@ export function nodeSupported(node) {
 }
 
 /**
+ * Whether a node binary can boot the harness build: the harness reaches Node's internal module
+ * loaders through `node-addon-require-builtin`, which reads them out of the node binary's machine
+ * code and knows the official builds' (nodejs.org; Homebrew's too), not every distribution's (a
+ * nixpkgs node fails it). Returns undefined when it can, else the reason.
+ */
+export function harnessRefuses(node, harnessBuild) {
+  const cwd = join(harnessBuild, 'packages', 'boot', 'app-boot')
+  if (!existsSync(cwd)) return undefined
+  const probe = "require('node-addon-require-builtin').requireBuiltin('internal/modules/esm/loader')"
+  const result = spawnSync(node, ['-e', probe], { cwd, encoding: 'utf8', timeout: 30_000 })
+  if (result.status === 0) return undefined
+  return (result.stderr || result.error?.message || `exit ${result.status}`).split('\n').find(l => /unsupported|Error/.test(l))?.trim() ?? 'it exits with an error'
+}
+
+/**
  * `<support>/deepsea-relay`: a link to node, so the relay shows by that name. Node is found on the
  * PATH (a stable link, not a versioned path) unless that one is too old to run the harness (a
- * login shell's PATH can hold an old /usr/local/bin/node): then the node running dsd.
+ * login shell's PATH can hold an old /usr/local/bin/node) or cannot boot it (`harnessRefuses`):
+ * then the node running dsd, which must.
  */
-export function linkRelayNode(supportDir) {
+export function linkRelayNode(supportDir, harnessBuild) {
   const which = spawnSync('/bin/sh', ['-lc', 'command -v node'], { encoding: 'utf8' }).stdout.trim()
-  const node = which && nodeSupported(which) ? which : process.execPath
-  if (which && node !== which) note(`${which} is too old for the harness; the relay and server use ${node}`)
+  const refused = node => !nodeSupported(node) ? 'too old for the harness' : harnessBuild ? harnessRefuses(node, harnessBuild) : undefined
+  const onPathReason = which ? refused(which) : undefined
+  const node = which && onPathReason === undefined ? which : process.execPath
+  if (node !== which) {
+    const own = refused(node)
+    if (own !== undefined) throw new DsdError(`no node here can run the harness: ${which ? `${which}: ${onPathReason}; ` : ''}${node} (running dsd): ${own}. Run dsd with an official Node build (nodejs.org)`)
+    if (which) note(`${which} cannot run the harness (${onPathReason}); the relay and server use ${node}`)
+  }
   const link = join(supportDir, 'deepsea-relay')
   mkdirSync(supportDir, { recursive: true })
   try { if (lstatSync(link).isSymbolicLink() && readlinkSync(link) === node) return { link, node } } catch { /* none */ }
@@ -224,6 +258,51 @@ export async function removeLaunchAgent(id) {
   const existed = existsSync(plist)
   rmSync(plist, { force: true })
   return { stopped, plist: existed ? plist : undefined }
+}
+
+// ---- the relay's job, either platform -----------------------------------------
+
+/** The relay's systemd unit (Linux). */
+export const relayUnitOf = id => `${relayLabelOf(id)}.service`
+
+/**
+ * The relay's job as this platform runs it: a LaunchAgent on macOS, a systemd user unit on Linux.
+ * `status` is `{ loaded, pid }`: loaded = bootstrapped (macOS) or running (Linux).
+ */
+export const relayService = {
+  /** The job's file: the plist or the unit. */
+  file: id => DARWIN ? launchAgentOf(id) : join(unitDir(), relayUnitOf(id)),
+  installed: id => existsSync(relayService.file(id)),
+  /** Where the job's own stdout and stderr go (the relay logs to its run log). */
+  log: id => join(logDirOf(id), 'relay', DARWIN ? 'launchd.log' : 'systemd.log'),
+  status(id) {
+    if (DARWIN) return jobStatus(relayLabelOf(id))
+    const unit = unitStatus(relayUnitOf(id))
+    return { loaded: unit.active, pid: unit.pid }
+  },
+  /** Write the job and (re)start it. */
+  async install(id, programArguments) {
+    if (DARWIN) {
+      const { label, plist } = await installLaunchAgent(id, programArguments, relayService.log(id))
+      return { label, file: plist }
+    }
+    const unit = relayUnitOf(id)
+    const file = await installUnit(unit, relayUnit({ description: `${displayName(id)} relay (${variantName(id)})`, programArguments, log: relayService.log(id) }))
+    return { label: unit, file }
+  },
+  /** Start the installed job if it is not running. */
+  async start(id) {
+    if (!DARWIN) return startUnit(relayUnitOf(id))
+    if (!jobStatus(relayLabelOf(id)).loaded) await bootstrap(launchAgentOf(id), relayLabelOf(id))
+    kickstart(relayLabelOf(id))
+  },
+  /** Stop the job (relay and server); it stays installed. Returns whether it ran. */
+  stop: id => DARWIN ? bootout(relayLabelOf(id)) : stopUnit(relayUnitOf(id)),
+  /** Stop and delete the job. */
+  async remove(id) {
+    if (DARWIN) { const { stopped, plist } = await removeLaunchAgent(id); return { stopped, file: plist } }
+    return removeUnit(relayUnitOf(id))
+  },
 }
 
 // ---- the Dock (opt-in) --------------------------------------------------------

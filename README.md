@@ -40,6 +40,12 @@ prompt), removed when you quit the app. No keys or accounts are needed.
 Installing a variant you keep, and everything else `dsd` does, is in
 [tools/dsd/README.md](tools/dsd/README.md).
 
+On Linux, `dsd` installs and runs variants as servers (no app): its relay as
+a systemd user unit, reached from another machine's DeepSea, a browser or
+the Linux thin client in `apps/linux`. What it needs there, an official Node
+build and a C compiler among them, is in the Linux section of
+[tools/dsd/README.md](tools/dsd/README.md#linux).
+
 ## Branches
 
 | Branch | |

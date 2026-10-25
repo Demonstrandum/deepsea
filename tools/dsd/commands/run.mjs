@@ -35,6 +35,7 @@ import { join, resolve } from 'node:path'
 import { appSocketOf, appSource, buildThrowawayApp, launchApp, waitAppReady } from '../lib/app.mjs'
 import { appRequest } from '../lib/appsocket.mjs'
 import { componentSource } from '../lib/components.mjs'
+import { harnessRefuses } from '../lib/install.mjs'
 import { ensureSourceBuild, resolveSourceCommit } from '../lib/source.mjs'
 import { runNamed } from './variant.mjs'
 import { credentialsDocument, ensureSim, provisionAccounts } from '../lib/sim.mjs'
@@ -223,6 +224,10 @@ export async function run(argv, hooks = {}) {
   const mode = { throwaway: 'full', 'throwaway-app': 'app', 'throwaway-server': 'server' }[kinds[0]]
   if (mode === undefined) return runNamed(parent, args)
   if (mode === 'server' && (args.visible || args.app)) usage('--visible and --app are for --throwaway and --throwaway-app')
+  // The app is the macOS app: elsewhere --throwaway is the relay and server, as an installed variant there runs.
+  const withApp = mode === 'app' || (mode === 'full' && process.platform === 'darwin')
+  if (mode === 'app' && process.platform !== 'darwin') usage('--throwaway-app needs macOS (apps/macos); --throwaway runs the relay and server without an app here')
+  if (mode === 'full' && !withApp && (args.visible || args.app)) usage('--visible and --app need the macOS app')
   const timeoutMs = Number(args.timeout ?? 180) * 1000
 
   // Which code: with --source, an immutable build of that commit of this repository (its plugins,
@@ -234,12 +239,14 @@ export async function run(argv, hooks = {}) {
   const lock = readLock(undefined, source?.dir)
   const repo = harnessRepo(lock)
   const commit = resolveHarnessCommit(args.harness ?? lock.commit, repo)
-  const app = mode !== 'server' ? appSource(source ? source.dir : typeof args.app === 'string' ? args.app : undefined) : undefined
+  const app = withApp ? appSource(source ? source.dir : typeof args.app === 'string' ? args.app : undefined) : undefined
   // The relay: the source build's, else this checkout's, else topic/relay's (lib/components.mjs).
   const relaySource = mode === 'full'
     ? (source && existsSync(join(source.dir, 'apps', 'relay', 'relay.mjs')) ? componentSource('relay', source.dir) : componentSource('relay'))
     : undefined
   const build = await ensureBuild(commit, repo)
+  const refused = harnessRefuses(process.execPath, build)
+  if (refused !== undefined) throw new DsdError(`${process.execPath} (running dsd, and the throwaway's server) cannot run the harness: ${refused}. Run dsd with an official Node build (nodejs.org)`)
   const plugins = selectPlugins(args.plugins, source?.dir)
   // Every throwaway gets the test driver (dsd drive; it arms only in a throwaway home) and the
   // server log (plugin log messages into the server's log), first in order (rows still load
@@ -337,6 +344,10 @@ export async function run(argv, hooks = {}) {
       throw error
     }
   }
+  // With a relay and no app (Linux), dsd makes the first connection itself: the cold start.
+  if (relay && !app) {
+    try { await waitServerThroughRelay(child, { url: relay.url, serverLog: facts.log }, timeoutMs) } catch (error) { await cleanup(); throw error }
+  }
   const login = `${facts.url}?token=${facts.token}`
 
   let appChild
@@ -431,6 +442,7 @@ export async function play(argv) {
   onlyFlags(args, ['plugins', 'accounts', 'source', 'harness', 'patch', 'real'])
   if (args._.length > 0) usage('dsd play [--plugins <names|all>] [--accounts <names|standard|none>] [--source <ref>] [--harness <ref>] [--patch <file>,…] [--real]')
   if (args.real && args.accounts !== undefined) usage('--accounts goes with simulated providers, not --real')
+  if (process.platform !== 'darwin') usage('dsd play opens the macOS app; here use dsd run release --throwaway --scripted --source integration/base --plugins all --simulated, and open its URL')
   return run([
     'release', '--throwaway', '--visible', '--detach', '--scripted',
     ...(args.harness ? ['--harness', args.harness] : ['--source', args.source ?? 'integration/base']),

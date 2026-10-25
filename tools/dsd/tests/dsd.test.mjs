@@ -266,6 +266,55 @@ test('install: the relay plist, Serve path choice (stepping aside), Dock entries
   assert.equal(dockHas('<plist></plist>', '/Users/USER/Applications/DeepSea Lab.app'), false)
 })
 
+test('install on Linux: the relay unit, its quoting, a named Serve path, the support directory', async () => {
+  const { relayUnit, systemdQuote } = await import('../lib/systemd.mjs')
+  const { chooseServePath, supportDirOf } = await import('../lib/install.mjs')
+  assert.equal(systemdQuote('/a b/c'), '"/a b/c"')
+  assert.equal(systemdQuote('50% $HOME "x" \\'), '"50%% $$HOME \\"x\\" \\\\"')
+  assert.equal(systemdQuote('A=$x', { dollars: false }), '"A=$x"')
+  assert.throws(() => systemdQuote('a\nb'), /line break/)
+  const unit = relayUnit({ description: 'DeepSea Lab relay', programArguments: ['/s/deepsea-relay', '/b/apps/relay/relay.mjs', '--', '/n/node', 'x y'], log: '/l/relay/systemd.log' })
+  assert.match(unit, /^ExecStart="\/s\/deepsea-relay" "\/b\/apps\/relay\/relay\.mjs" "--" "\/n\/node" "x y"$/m)
+  assert.match(unit, /^Restart=always$/m)
+  assert.match(unit, /^StandardOutput=append:\/l\/relay\/systemd\.log$/m)
+  assert.match(unit, /^WantedBy=default\.target$/m)
+  assert.doesNotMatch(unit, /^Environment=/m)
+  assert.match(relayUnit({ description: 'd', programArguments: ['x'], log: '/l', environment: { A: '$b' } }), /^Environment="A=\$b"$/m)
+  // A named path is kept unless another target holds it.
+  assert.equal(chooseServePath('release', 3200, { mappings: {} }, 'me', '/deepsea-me'), '/deepsea-me')
+  assert.equal(chooseServePath('release', 3200, { mappings: { '/deepsea-me': 'http://127.0.0.1:3203' } }, 'me', '/deepsea-me'), '/deepsea-me')
+  assert.throws(() => chooseServePath('release', 3200, { mappings: { '/deepsea-me': 'http://127.0.0.1:3303' } }, 'me', '/deepsea-me'), /not this variant's relay/)
+  assert.equal(supportDirOf('lab', 'linux', { XDG_DATA_HOME: '/x/share' }), '/x/share/io.github.taliesinb.deepsea.lab')
+  assert.match(supportDirOf('lab', 'darwin'), /\/Library\/Application Support\/io\.github\.taliesinb\.deepsea\.lab$/)
+})
+
+test('Linux: listening sockets from /proc/net/tcp, leftovers in the XDG directories, executables on PATH', async () => {
+  const { listeningInodes } = await import('../lib/processes.mjs')
+  const { linuxLeftovers } = await import('../lib/remove.mjs')
+  const { onPath } = await import('../lib/util.mjs')
+  const table = `  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+   0: 0100007F:0C83 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1003        0 4242 1 0000000000000000 100 0 0 10 0
+   1: 0100007F:0C83 0100007F:9C40 01 00000000:00000000 00:00000000 00000000  1003        0 4343 1 0000000000000000 20 4 30 10 -1
+   2: 00000000:0C80 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1001        0 4444 1 0000000000000000 100 0 0 10 0`
+  assert.deepEqual([...listeningInodes(table, 3203)], ['4242'])
+  assert.deepEqual([...listeningInodes(table, 3200)], ['4444'])
+  assert.deepEqual([...listeningInodes(table, 3299)], [])
+  const dir = mkdtempSync(join(tmpdir(), 'dsd-linux-'))
+  try {
+    for (const d of ['share/io.github.taliesinb.deepsea.lab', 'share/io.github.taliesinb.deepsea.lab2', 'state/io.github.taliesinb.deepsea.lab', 'state/io.github.taliesinb.deepsea.lab.relay']) mkdirSync(join(dir, d), { recursive: true })
+    const env = { XDG_DATA_HOME: join(dir, 'share'), XDG_STATE_HOME: join(dir, 'state') }
+    assert.deepEqual(linuxLeftovers('io.github.taliesinb.deepsea.lab', 'linux', env).map(p => p.slice(dir.length + 1)).sort(),
+      ['share/io.github.taliesinb.deepsea.lab', 'state/io.github.taliesinb.deepsea.lab', 'state/io.github.taliesinb.deepsea.lab.relay'])
+    assert.deepEqual(linuxLeftovers('io.github.taliesinb.deepsea.lab', 'darwin', env), [])
+    mkdirSync(join(dir, 'bin'))
+    writeFileSync(join(dir, 'bin', 'tool'), '#!/bin/sh\n', { mode: 0o755 })
+    writeFileSync(join(dir, 'bin', 'data'), 'x', { mode: 0o644 })
+    assert.equal(onPath('tool', { PATH: `/nonexistent:${join(dir, 'bin')}` }), join(dir, 'bin', 'tool'))
+    assert.equal(onPath('data', { PATH: join(dir, 'bin') }), undefined)
+    assert.equal(onPath('bin', { PATH: dir }), undefined)
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
 test('components: the relay from a checkout that has it, else extracted (with packages/logs) from topic/relay', async () => {
   const { componentSource } = await import('../lib/components.mjs')
   const { DsdError } = await import('../lib/util.mjs')

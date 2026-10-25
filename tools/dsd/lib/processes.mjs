@@ -3,8 +3,9 @@
  * process group, free ports.
  */
 import { execFileSync } from 'node:child_process'
+import { existsSync, readdirSync, readFileSync, readlinkSync } from 'node:fs'
 import { createServer } from 'node:net'
-import { sleep } from './util.mjs'
+import { onPath, sleep } from './util.mjs'
 
 /** Whether a process exists. */
 export function alive(pid) {
@@ -48,14 +49,56 @@ export async function stopGroup(pgid, graceMs = 10_000) {
   try { process.kill(-pgid, 'SIGKILL') } catch { /* already gone */ }
 }
 
-/** The pids listening on a TCP port of this machine (lsof; empty when none or lsof is missing). */
-export function listenerPids(port) {
+/**
+ * The pids listening on a TCP port of this machine: on Linux from /proc (the listening sockets'
+ * inodes, then the processes holding them: this account's, which is all dsd signals), elsewhere
+ * through lsof; empty when none, or when neither can be read.
+ */
+export function listenerPids(port, platform = process.platform) {
+  if (platform === 'linux') {
+    try { return procListenerPids(port) } catch { /* no /proc: try lsof */ }
+  }
   try {
-    return execFileSync('/usr/sbin/lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+    const lsof = existsSync('/usr/sbin/lsof') ? '/usr/sbin/lsof' : onPath('lsof')
+    if (!lsof) return []
+    return execFileSync(lsof, ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
       .split('\n').filter(Boolean).map(Number)
   } catch {
     return []
   }
+}
+
+/** Inodes of the TCP sockets listening on `port`, from /proc/net/tcp-style text. */
+export function listeningInodes(text, port) {
+  const inodes = new Set()
+  for (const line of String(text).split('\n').slice(1)) {
+    const f = line.trim().split(/\s+/)
+    // sl local_address rem_address st tx:rx tr:when retrnsmt uid timeout inode
+    if (f.length < 10 || f[3] !== '0A') continue
+    if (Number.parseInt(f[1].split(':').pop(), 16) === port && f[9] !== '0') inodes.add(f[9])
+  }
+  return inodes
+}
+
+function procListenerPids(port) {
+  const inodes = new Set()
+  for (const table of ['/proc/net/tcp', '/proc/net/tcp6']) {
+    try { for (const inode of listeningInodes(readFileSync(table, 'utf8'), port)) inodes.add(inode) } catch (error) { if (table.endsWith('tcp')) throw error }
+  }
+  if (inodes.size === 0) return []
+  const pids = []
+  for (const entry of readdirSync('/proc')) {
+    if (!/^\d+$/.test(entry)) continue
+    let fds
+    try { fds = readdirSync(`/proc/${entry}/fd`) } catch { continue } // another account's, or gone
+    for (const fd of fds) {
+      let target
+      try { target = readlinkSync(`/proc/${entry}/fd/${fd}`) } catch { continue }
+      const m = /^socket:\[(\d+)\]$/.exec(target)
+      if (m && inodes.has(m[1])) { pids.push(Number(entry)); break }
+    }
+  }
+  return pids
 }
 
 /** A port nothing is listening on, on 127.0.0.1. */

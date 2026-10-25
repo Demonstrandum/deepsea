@@ -2,6 +2,8 @@
  * Small shared helpers: errors, argument parsing, flat YAML, time stamps.
  */
 import { execFileSync } from 'node:child_process'
+import { accessSync, constants, statSync } from 'node:fs'
+import { join } from 'node:path'
 
 /** A failure reported as `dsd: <message>` with an exit code, never a stack. */
 export class DsdError extends Error {
@@ -79,6 +81,15 @@ export function formatFlatYaml(object, header = '') {
 
 /** File-name stamps and ISO local times: the shared implementation (packages/logs). */
 export { fileStamp, isoLocal } from '../../../packages/logs/index.mjs'
+
+/** The first executable `name` on PATH, or undefined (no `which`: NixOS keeps it out of /usr/bin). */
+export function onPath(name, env = process.env) {
+  for (const dir of String(env.PATH ?? '').split(':').filter(Boolean)) {
+    const candidate = join(dir, name)
+    try { accessSync(candidate, constants.X_OK); if (statSync(candidate).isFile()) return candidate } catch { /* next */ }
+  }
+  return undefined
+}
 
 /** Run git and return trimmed stdout. */
 export function git(cwd, args) {

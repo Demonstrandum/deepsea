@@ -30,6 +30,47 @@ dependencies, so it runs on a fresh checkout before anything is installed.
 Environment: `DEEPSEA_ROOT` (default `~/.deepsea`) and `DEEPSEA_LOG_ROOT`
 (LAYOUT.md §5) move everything dsd writes, for tests and sandboxes.
 
+## Linux
+
+dsd runs on Linux too, for servers: a variant there is its relay and `dsh
+web`, reached on the tailnet or through the relay's loopback URL; the DeepSea
+app is the macOS app, and other machines reach a Linux variant through their
+own app, a browser or `apps/linux` (the Linux thin client). It needs Node
+(the harness's `engines`), pnpm, git and a C compiler (`cc`: the harness
+build compiles `native/system`), and for agents' commands bubblewrap
+(`bwrap`, the harness's Linux sandbox: without it the default sandbox mode
+refuses to run them); on NixOS, for example, `nix profile add
+nixpkgs#pnpm_11 nixpkgs#gcc nixpkgs#bubblewrap`, plus `nixpkgs#lsof` for the
+tailscale plugin's port forwarding.
+
+The node must be an official build (nodejs.org's `linux-x64` tarball runs
+on NixOS through nix-ld): the harness reaches Node's internal loaders with
+`node-addon-require-builtin`, which reads them out of the binary's machine
+code and does not recognise every distribution's build (nixpkgs' fails it,
+and `dsh web` then stops at "host preparation failed"). `dsd build
+--install` checks the node on PATH and, failing that, uses the node running
+dsd, and refuses when neither can boot the harness; `dsd run --throwaway…`
+checks the node running dsd.
+
+- `dsd build <v> --install` writes the relay as a systemd user unit,
+  `${XDG_CONFIG_HOME:-~/.config}/systemd/user/<variant name>.relay.service`
+  (enabled, `Restart=always`, its stdout and stderr in
+  `<log dir>/relay/systemd.log`), with the relay link in
+  `${XDG_DATA_HOME:-~/.local/share}/<variant name>/`; there is no server
+  host. `run`, `stop` and `remove` start, stop and remove the unit.
+- The unit runs while the account's user manager does: from login to the
+  last logout, or always when the account lingers (`loginctl
+  enable-linger`, which usually needs an administrator). `build --install`
+  says so when it does not.
+- Logs follow LAYOUT.md §5 under `${XDG_STATE_HOME:-~/.local/state}`.
+- On a machine shared by several accounts, `dsd new <v> --serve-path
+  /deepsea-<user>` gives the variant a path of the person's own. Publishing
+  it takes a Tailscale operator (`tailscale set --operator=<user>`, as root),
+  or root publishing it once (`tailscale serve --bg --https=443
+  --set-path=<path> http://127.0.0.1:<block+3>`): tailscaled keeps it, and
+  the tailscale plugin counts a path that points at its relay as its own.
+- Listening sockets are read from `/proc` (lsof elsewhere).
+
 ## Variants
 
 A variant is defined by `~/.deepsea/<v>/variant.yml`, written by `dsd new`:
@@ -52,7 +93,7 @@ machine-wide ones included, except the test-only `test-driver` and
 
 **Throwaway variants** (`--throwaway…`) are copies of a named variant's
 configuration with a fresh id `<parent>-<hex>` and an empty home. They take
-free ports, have no Serve path, no LaunchAgent and no LaunchServices
+free ports, have no Serve path, no LaunchAgent or systemd unit and no LaunchServices
 registration, and their app uses a non-persistent WebKit store, so removing
 the home and the temporary build directory removes everything. A throwaway
 runs the shared build of the pinned harness commit (`--harness <ref>` names
@@ -169,12 +210,12 @@ taken over. Build logs: `~/Library/Logs/io.github.taliesinb.deepsea/builds/`.
 | Command | Does |
 |---|---|
 | `dsd play [--plugins <names\|all>] [--accounts <names\|standard\|none>] [--source <ref>] [--harness <ref>] [--patch <file>,…] [--real]` | a throwaway to try things in, for people: `run release --throwaway --visible --detach --scripted --source integration/base --plugins all --simulated --accounts standard` (the app in front of you, every plugin, every provider simulated with test accounts, the scripted model the default); `--real` uses the real providers and no accounts. Quitting the app throws it away |
-| `dsd new <v> [--source <ref>] [--color <hex>] [--plugins <names\|all>] [--no-serve]` | create a named variant: home, `variant.yml` (port block: the first free one; Serve path, stepping aside from another account's), and the home's `logs` / `support` links (LAYOUT.md §4, §7); `--source` defaults to `integration/base` |
-| `dsd build <v> [--install [--dock]] [--self]` | make sure the build of its source commit exists, install its plugins into its profile as bundles, and build its app (`apps/macos`); `--install` installs the app (`~/Applications`), the server host and relay link (Application Support), the relay LaunchAgent (loaded at once; LAYOUT.md §6) and the home's `source` link, and with `--dock` a Dock tile. The server host is replaced only when its signature changes, so privacy grants survive |
+| `dsd new <v> [--source <ref>] [--color <hex>] [--plugins <names\|all>] [--no-serve \| --serve-path <path>]` | create a named variant: home, `variant.yml` (port block: the first free one; Serve path, stepping aside from another account's, or `--serve-path` as given unless another target holds it), and the home's `logs` / `support` links (LAYOUT.md §4, §7); `--source` defaults to `integration/base` |
+| `dsd build <v> [--install [--dock]] [--self]` | make sure the build of its source commit exists, install its plugins into its profile as bundles, and on macOS build its app (`apps/macos`); `--install` installs the app (`~/Applications`), the server host and relay link (Application Support), the relay LaunchAgent (loaded at once; LAYOUT.md §6) and the home's `source` link, and with `--dock` a Dock tile. The server host is replaced only when its signature changes, so privacy grants survive. On Linux (below): no app; `--install` installs the relay link and the relay's systemd user unit |
 | `dsd adopt <old home> (<v> \| --throwaway [run options…]) [--move-sign-ins] [--dry-run]` | bring an old DSH home (`~/.dsh…`) into a variant: copies sessions and attachments, the workspace registry, settings.yaml, API keys, each old plugin's state in its DeepSea place, the old profile's own rows and third-party bundles; re-runnable (it brings what is new or changed, and reports a conflict for anything changed on both sides); creates `<v>` as `new` would if missing (not built: `dsd build <v> --install` stays yours); `--throwaway` adopts into a fresh throwaway and starts it (run options pass through); `--move-sign-ins` moves Plan sign-ins out of the old home; `--dry-run` touches nothing (below) |
-| `dsd remove <v> [--home] [--self]` | uninstall a named variant: its LaunchAgent (stopping relay and server), its own Serve path, Dock tile, app, preferences and `~/Library` leftovers; the home stays unless `--home` |
+| `dsd remove <v> [--home] [--self]` | uninstall a named variant: its LaunchAgent or systemd unit (stopping relay and server), its own Serve path, Dock tile, app, preferences and `~/Library` (Linux: XDG data and state) leftovers; the home stays unless `--home` |
 | `dsd run <v> [--throwaway \| --throwaway-app \| --throwaway-server] [--visible] [--detach] [--scripted] [--plugins <names\|all>] [--patch <file>,…] [--app <checkout \| ref>] [--source <ref>] [--harness <ref>] [--ttl <min>] [--keep]` | start it, building first if needed (a throwaway always gets plugins/test-driver and plugins/server-log); prints id, home, URL, login URL (with token), pids, log, app path, automation socket, and with `--throwaway` the relay's pid, port, URL and log. `--source <ref>` runs a build of that commit of this repository (plugins, harness pin, app; a named plugin, or under `all` any plugin, that build lacks comes from this checkout, so a topic not integrated yet runs beside the integration); `--harness` names a harness commit directly; `--simulated [--accounts <names>]` points every model provider at the provider simulator with fresh test accounts (default `standard`: one account per provider route, keys and signed-in Plans; a later account replaces an earlier one of the same route, so `standard,openrouter-low` swaps in a nearly spent OpenRouter key; `none` for none; tools/provider-sim/README.md) |
-| `dsd stop [<ref>] [--keep]` | stop it: a named variant's relay job is unloaded (relay and server stop; the LaunchAgent stays and starts again at login or with `dsd run`); a throwaway's home, logs and macOS leftovers are removed unless `--keep` |
+| `dsd stop [<ref>] [--keep]` | stop it: a named variant's relay job is unloaded or its unit stopped (relay and server stop; the LaunchAgent or unit stays and starts again at login or with `dsd run`); a throwaway's home, logs and macOS leftovers are removed unless `--keep` |
 | `dsd sim [status] \| start \| stop \| accounts [<provider>] \| account <provider> <credential> [--set <json>] \| fixtures` | the provider simulator (tools/provider-sim/README.md): one per checkout, sharing one store of accounts, started on demand and left running |
 | `dsd list [--builds]` | variants, what is running, ports, ids; with `--builds`, the builds and what uses each |
 | `dsd logs [<ref>] [app \| relay \| server \| dsd \| plugin <name>] [--lines <n>] [--follow] [--export]` | the current run's log of that kind (its directory's `latest` link; default `server`): the last `--lines` lines (default 100, 0: all), the file's path on standard error; `--follow` prints what is appended and moves on to a newer run when the link does (a relay restarting the server); `--export` copies it into the current directory as `deepsea.<v>-<kind>-<ts>.log` |
@@ -194,9 +235,9 @@ taken over. Build logs: `~/Library/Logs/io.github.taliesinb.deepsea/builds/`.
 
 | Mode | Runs |
 |---|---|
-| (none) | the installed named variant: loads and starts its relay, then opens its app (`--no-app`: not the app) |
-| `--throwaway` | relay, server and app, as child processes (above); lives as `--throwaway-app` does, the relay in the server's place |
-| `--throwaway-app` | server and app (connected straight to the server), no relay; in the foreground until Ctrl-C or the app or server exits, with `--detach` until the app quits or `dsd stop` |
+| (none) | the installed named variant: loads and starts its relay, then opens its app (`--no-app`: not the app; Linux: no app) |
+| `--throwaway` | relay, server and app, as child processes (above); lives as `--throwaway-app` does, the relay in the server's place. On Linux relay and server only: dsd makes the first connection (the cold start) and lives as `--throwaway-server` does |
+| `--throwaway-app` | server and app (connected straight to the server), no relay; in the foreground until Ctrl-C or the app or server exits, with `--detach` until the app quits or `dsd stop`. macOS only |
 | `--throwaway-server` | server only: in the foreground until Ctrl-C, SIGTERM or the server's exit, then cleaned up; with `--detach`, until `dsd stop`, or `dsd gc` after `--ttl` minutes (default 120) |
 
 A throwaway's home holds `variant.yml` (id, parent, harness commit, the
